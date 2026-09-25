@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from openai import OpenAI, APIError, APIConnectionError, RateLimitError
+from openai import APIError, APIConnectionError, RateLimitError
+from langfuse.openai import OpenAI
 from tenacity import (
     retry,
     retry_if_exception_type,

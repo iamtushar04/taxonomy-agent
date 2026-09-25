@@ -56,6 +56,7 @@ from pipeline.utils.taxonomy_loader import (
     parse_text_taxonomy,
 )
 from pipeline.utils import tracer
+from langfuse import observe
 
 
 # ---------------------------------------------------------------------------
@@ -175,16 +176,14 @@ def main() -> None:
 
     # ── 5. Run pipeline for each patent ───────────────────────────────────
     success = 0
-    failed  = 0
-
+    failed = 0
     for row_idx, patent_number in patents_to_process:
         logger.info("-" * 50)
         logger.info("Processing: %s (row %d)", patent_number, row_idx)
 
-        # Build initial state
         initial_state: PatentExtractionState = {
             "patent_number":   patent_number,
-            "taxonomy_nodes":  leaf_nodes,   # only leaf nodes for extraction
+            "taxonomy_nodes":  leaf_nodes,
             "excel_path":      excel_path,
             "excel_sheet":     sheet_name,
             "excel_row":       row_idx,
@@ -192,10 +191,8 @@ def main() -> None:
         }
 
         if args.dry_run:
-            # Just fetch and parse — skip extraction and write
             from pipeline.nodes.fetch_patent import fetch_patent
             from pipeline.nodes.parse_content import parse_content
-
             state = fetch_patent(initial_state)
             if not state.get("errors"):
                 state = parse_content(state)
@@ -209,28 +206,10 @@ def main() -> None:
                 logger.error("  [DRY RUN] Fetch failed: %s", state["errors"])
             continue
 
-        # Full pipeline
-        try:
-            # Initialize the markdown trace for this patent
-            tracer.init_trace(patent_number)
-            
-            final_state = None
-            for event in app.stream(initial_state):
-                # event is a dict: {node_name: node_state}
-                for node_name, node_state in event.items():
-                    tracer.log_node_event(patent_number, node_name, node_state)
-                    final_state = node_state  # keep track of the last state
-            
-            if final_state and final_state.get("errors"):
-                logger.warning(
-                    "Completed with errors: %s", final_state["errors"]
-                )
-                failed += 1
-            else:
-                logger.info("✓ %s — written to row %d", patent_number, row_idx)
-                success += 1
-        except Exception as exc:
-            logger.error("FATAL for %s: %s", patent_number, exc, exc_info=True)
+        is_success = _process_single_patent(app, initial_state, patent_number, row_idx)
+        if is_success:
+            success += 1
+        else:
             failed += 1
 
     # ── 6. Summary ────────────────────────────────────────────────────────
@@ -238,6 +217,28 @@ def main() -> None:
     logger.info("DONE — Success: %d | Failed: %d | Total: %d",
                 success, failed, len(patents_to_process))
     logger.info("Output: %s", excel_path)
+
+@observe(name="Extract_Patent_Data")
+def _process_single_patent(app, initial_state, patent_number: str, row_idx: int) -> bool:
+    try:
+        from pipeline.utils import tracer
+        tracer.init_trace(patent_number)
+        
+        final_state = None
+        for event in app.stream(initial_state):
+            for node_name, node_state in event.items():
+                tracer.log_node_event(patent_number, node_name, node_state)
+                final_state = node_state
+        
+        if final_state and final_state.get("errors"):
+            logger.warning("Completed with errors: %s", final_state["errors"])
+            return False
+        else:
+            logger.info("✓ %s — written to row %d", patent_number, row_idx)
+            return True
+    except Exception as exc:
+        logger.error("FATAL for %s: %s", patent_number, exc, exc_info=True)
+        return False
     logger.info("Log:    pipeline.log")
     logger.info("=" * 60)
 

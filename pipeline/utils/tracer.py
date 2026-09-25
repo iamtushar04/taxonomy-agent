@@ -76,10 +76,23 @@ def log_node_event(patent_number: str, node_name: str, state: PatentExtractionSt
         for sec, count in section_counts.items():
             _append(patent_number, f"- **{sec}**: {count}")
         _append(patent_number, "")
+        
+        _append(patent_number, "<details>\n<summary><b>View Parsed Text Chunks (Preview)</b></summary>\n")
+        for i, c in enumerate(chunks, 1):
+            # Show the first 300 chars of each chunk so the file doesn't become too massive to open
+            snippet = c['text'].replace('\n', ' ')[:300]
+            _append(patent_number, f"- **Chunk {i} [{c['section']}]**: {snippet}...")
+        _append(patent_number, "</details>\n")
 
     elif node_name == "describe_nodes":
         nodes = state.get("taxonomy_nodes") or []
         _append(patent_number, f"Processed {len(nodes)} total taxonomy nodes. Descriptions loaded/generated from LLM.\n")
+        
+        _append(patent_number, "<details>\n<summary><b>View Generated Node Descriptions</b></summary>\n")
+        for n in nodes:
+            desc = n.get("description", "(No description)")
+            _append(patent_number, f"- **{n['name']}**: {desc}")
+        _append(patent_number, "</details>\n")
 
     elif node_name == "match_relevance":
         relevant = state.get("relevant_nodes") or []
