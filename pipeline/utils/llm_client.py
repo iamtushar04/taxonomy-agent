@@ -117,6 +117,12 @@ def chat_completion(
     return response.choices[0].message.content or ""
 
 
+@retry(
+    retry=retry_if_exception_type(ValueError),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
 def chat_json(
     messages: list[dict],
     *,
@@ -127,6 +133,7 @@ def chat_json(
     """
     Like chat_completion but always returns a parsed JSON dict.
     Uses the cheap model when cheap=True (good for relevance scoring).
+    Automatically retries up to 3 times if the LLM hallucinates invalid JSON.
     """
     resolved_model = model or (_cheap_model() if cheap else _main_model())
     raw = chat_completion(

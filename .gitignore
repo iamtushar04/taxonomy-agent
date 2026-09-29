@@ -18,3 +18,4 @@ pipeline.log
 .kilo
 .cache
 __pycache__
+taxonomy_template.xlsx
