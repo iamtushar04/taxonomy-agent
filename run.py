@@ -50,6 +50,7 @@ logger = logging.getLogger("run")
 from pipeline.graph import build_graph
 from pipeline.state import PatentExtractionState
 from pipeline.utils.excel_mapper import build_column_map, read_patent_numbers
+from pipeline.utils.reasoning_loader import load_reasoning_map
 from pipeline.utils.taxonomy_loader import (
     get_leaf_nodes,
     parse_excel_taxonomy,
@@ -108,6 +109,15 @@ def parse_args() -> argparse.Namespace:
         "--backup", action="store_true",
         help="Create a timestamped backup of the Excel file before writing.",
     )
+    parser.add_argument(
+        "--reasoning", default=None,
+        help=(
+            "Optional path to the Human Reasoning Excel file. "
+            "When provided, the per-patent comment rows are loaded and injected "
+            "into each extraction prompt so the LLM knows exactly which source, "
+            "which examples, and which value range to use."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -124,6 +134,8 @@ def main() -> None:
     logger.info("Patent Taxonomy Extraction Pipeline")
     logger.info("Excel:  %s", excel_path)
     logger.info("Sheet:  %s", sheet_name)
+    if args.reasoning:
+        logger.info("Reasoning file: %s", args.reasoning)
     if args.dry_run:
         logger.info("MODE:   DRY RUN (no extraction, no writes)")
     logger.info("=" * 60)
@@ -170,6 +182,20 @@ def main() -> None:
         logger.warning("No patents found to process. Exiting.")
         return
 
+    # ── 4a. Load reasoning map (optional) ─────────────────────────────────
+    reasoning_map: dict = {}
+    if args.reasoning:
+        reasoning_map = load_reasoning_map(
+            args.reasoning,
+            sheet="Human reasoning",
+        )
+        logger.info(
+            "Reasoning map loaded: %d patent(s) have per-column reasoning",
+            len(reasoning_map),
+        )
+    else:
+        logger.info("No reasoning file provided — generic extraction mode")
+
     # ── 4. Build LangGraph ─────────────────────────────────────────────────
     if not args.dry_run:
         app = build_graph(col_map)
@@ -182,12 +208,13 @@ def main() -> None:
         logger.info("Processing: %s (row %d)", patent_number, row_idx)
 
         initial_state: PatentExtractionState = {
-            "patent_number":   patent_number,
-            "taxonomy_nodes":  leaf_nodes,
-            "excel_path":      excel_path,
-            "excel_sheet":     sheet_name,
-            "excel_row":       row_idx,
-            "errors":          [],
+            "patent_number":      patent_number,
+            "taxonomy_nodes":     leaf_nodes,
+            "excel_path":         excel_path,
+            "excel_sheet":        sheet_name,
+            "excel_row":          row_idx,
+            "extraction_reasoning": reasoning_map.get(patent_number, {}),
+            "errors":             [],
         }
 
         if args.dry_run:

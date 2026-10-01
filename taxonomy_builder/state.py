@@ -14,6 +14,10 @@ class Concept(BaseModel):
     name: str = Field(description="The name of the technical concept")
     context: str = Field(description="A brief sentence explaining how it is used in the patent")
     patent_id: str = Field(description="The ID of the patent this concept came from")
+    domain_path: list[str] = Field(
+        default_factory=list,
+        description="Technology ancestry path extracted from patent text (e.g. ['Automotive', 'Electric Vehicle', 'Battery Management']). Used to ground the hierarchy."
+    )
 
 class ConceptList(BaseModel):
     concepts: list[Concept]
@@ -72,6 +76,7 @@ class TaxonomyGenerationState(TypedDict, total=False):
     # ── Processing State ─────────────────────────────────────────────────────
     canonical_concepts: list[CanonicalConcept]
     concept_groups: dict[str, list[CanonicalConcept]] # Group Name -> List of CanonicalConcepts
+    concept_tree_skeleton: dict[str, Any]    # Nested group skeleton from group_concepts (Phase 2)
     draft_tree: dict[str, Any]               # The raw dict tree structure
     
     # ── Final Output ─────────────────────────────────────────────────────────

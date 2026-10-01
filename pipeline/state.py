@@ -59,6 +59,20 @@ class PatentExtractionState(TypedDict, total=False):
     excel_sheet: str
     excel_row: int                        # 1-indexed row for this patent
 
+    # Per-patent extraction reasoning loaded from the Human Reasoning Excel.
+    # Keys are full column paths: "Top Group > Mid Group > Leaf Name"
+    # Values are the human-written comment text explaining HOW to extract.
+    # Example:
+    #   {
+    #     "Polymer Properties > Mechanical Properties > Tensile Strength":
+    #         "Mapped from Table 3. Use inventive examples 4-8 only (not references). "
+    #         "Extract full range: lowest to highest. Separate MD and TD.",
+    #     "Physical Property > Density":
+    #         "From Claims directly. Three ranges exist — use the narrowest: 0.910-0.914 g/cm3",
+    #   }
+    # Empty dict means no reasoning was provided — fall back to generic extraction.
+    extraction_reasoning: dict[str, str]
+
     # ── Node 1: fetch_patent ─────────────────────────────────────────────────
     raw_api_response: dict[str, Any]
 

@@ -105,12 +105,18 @@ def build_column_map(
     wb = openpyxl.load_workbook(excel_path, data_only=True)
     ws = wb[sheet_name]
 
-    # Build a lookup: normalised node name → node_id
+    # Build a lookup: normalised node path -> node
+    # and normalised leaf name -> node
+    path_to_node: dict[str, TaxonomyNode] = {}
     name_to_node: dict[str, TaxonomyNode] = {}
     for node in taxonomy_nodes:
         name_to_node[node["name"].lower().strip()] = node
         last_segment = node["path"].split(">")[-1].strip().lower()
         name_to_node[last_segment] = node
+        
+        # Build normalized full path string
+        norm_path = " > ".join(s.strip() for s in node["path"].split(">")).lower()
+        path_to_node[norm_path] = node
 
     col_map = ExcelColumnMap()
     max_col = ws.max_column or 0
@@ -120,9 +126,8 @@ def build_column_map(
     col_map.header_rows = rows_to_scan
 
     # Build a per-column label by scanning all header rows.
-    # For each column, the LAST non-empty label wins (bottom-most row).
-    # This correctly resolves merged headers where parent label is in row 4
-    # and the leaf label is in row 6.
+    # We build the full path by joining all non-empty labels in the column.
+    col_paths: dict[int, list[str]] = {}
     col_labels: dict[int, str] = {}
     for row_num in rows_to_scan:
         try:
@@ -138,6 +143,9 @@ def build_column_map(
         for col_idx, val in row_map.items():
             label = str(val).strip()
             if label:
+                if col_idx not in col_paths:
+                    col_paths[col_idx] = []
+                col_paths[col_idx].append(label)
                 col_labels[col_idx] = label  # last non-empty wins
 
     for col_idx in range(1, max_col + 1):
@@ -147,6 +155,7 @@ def build_column_map(
 
         col_map.label_to_col[label] = col_idx
         lower_label = label.lower()
+        full_col_path = " > ".join(col_paths.get(col_idx, [])).lower()
 
         # Check patent number column
         if lower_label in _PATENT_NUM_ALIASES:
@@ -158,8 +167,8 @@ def build_column_map(
         if lower_label in _SKIP_ALIASES:
             continue
 
-        # Match to taxonomy node
-        node = name_to_node.get(lower_label)
+        # Match to taxonomy node (try full path first, then leaf)
+        node = path_to_node.get(full_col_path) or name_to_node.get(lower_label)
         if node:
             col_map.col_to_node[col_idx] = node["node_id"]
             col_map.node_to_col[node["node_id"]] = col_idx

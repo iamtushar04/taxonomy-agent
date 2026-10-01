@@ -19,3 +19,5 @@ pipeline.log
 .cache
 __pycache__
 taxonomy_template.xlsx
+Note.txt
+tests/
