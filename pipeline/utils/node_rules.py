@@ -109,4 +109,7 @@ def format_rules_for_prompt(rules: dict) -> str:
     priority = rules.get("priority", ["claims", "description", "tables"])
     parts.append(f"Source priority: {' -> '.join(p.upper() for p in priority)}.")
 
+    parts.append("If multiple value ranges are mentioned, identify the most specific and niche value.")
+    parts.append("For multilayer films, consider the property of the entire composition. If not specified, use the metallocene layer.")
+
     return " ".join(parts)

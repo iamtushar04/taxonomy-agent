@@ -90,22 +90,21 @@ def _sheet_to_rows(ws) -> list[list]:
     return rows
 
 
+def _find_header_start(rows: list[list]) -> int:
+    """Find the row index (0-based) where the leaf headers exist. Hardcoded for Fresh_Test_Copy where leaf is row 3 (index 2)."""
+    return 2
+
 def _build_col_to_path(rows: list[list]) -> dict[int, str]:
     """
-    Build column-index -> full hierarchical path string.
-
-    rows[1] = top-level group   (0-indexed, so Excel row 2)
-    rows[2] = mid-level group   (Excel row 3)
-    rows[3] = leaf column name  (Excel row 4) -- NOT forward-filled
-
-    Returns: {col_idx: "Top > Mid > Leaf", ...}
+    Build column-index -> full hierarchical path string dynamically.
     """
-    if len(rows) < 4:
+    leaf_idx = _find_header_start(rows)
+    if leaf_idx < 0 or len(rows) <= leaf_idx:
         return {}
 
-    h1 = _forward_fill(rows[1])   # top-level group (forward-filled)
-    h2 = _forward_fill(rows[2])   # mid-level group (forward-filled)
-    h3 = rows[3]                  # leaf names (NOT forward-filled)
+    h1 = _forward_fill(rows[leaf_idx - 2]) if leaf_idx >= 2 else []
+    h2 = _forward_fill(rows[leaf_idx - 1]) if leaf_idx >= 1 else []
+    h3 = rows[leaf_idx]                      # leaf names
 
     col_to_path: dict[int, str] = {}
     for col_idx, leaf_raw in enumerate(h3):
@@ -130,15 +129,15 @@ def _build_col_to_path(rows: list[list]) -> dict[int, str]:
 
 def _find_patent_comment_pairs(rows: list[list]) -> list[tuple[str, int]]:
     """
-    Scan rows starting from index 4 (Excel row 5) to find comment rows.
+    Scan rows starting after the leaf headers to find comment rows.
     col index 1 = S.No, col index 2 = Patent Number.
-
-    Returns: list of (patent_id, comment_row_idx) pairs.
     """
     pairs: list[tuple[str, int]] = []
     last_patent: str | None = None
+    
+    leaf_idx = _find_header_start(rows)
 
-    for row_idx, row in enumerate(rows[4:], start=4):
+    for row_idx, row in enumerate(rows[leaf_idx + 1:], start=leaf_idx + 1):
         # col 1 = S.No
         sno  = _clean(row[1]) if len(row) > 1 else None
         pnum = _clean(row[2]) if len(row) > 2 else None

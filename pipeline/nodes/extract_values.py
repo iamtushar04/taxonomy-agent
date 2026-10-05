@@ -88,9 +88,9 @@ Rules you MUST follow:
 2. The "evidence" field MUST be an exact verbatim quote from the text (max 300 chars).
 3. If the information is not present, return status "NOT_FOUND" with values=[].
 4. If the information is present but ambiguous or unclear, return status "UNCERTAIN".
-5. Multiple distinct values for the same node are allowed. List each as a separate
-   object in the values array.
-6. Include the unit in the value string (e.g. "35 MPa", not just "35").
+5. RANGE SYNTHESIS: If a property is reported across multiple inventive examples (e.g. in a table), you MUST extract ALL inventive values and summarize them into a single range (e.g., "10 - 20 MPa") rather than reporting a single arbitrary value.
+6. CONDITIONAL/DIMENSIONAL SPLITS: If the property has different dimensions, directions, or testing conditions (e.g., MD vs. TD, Standby vs Active), report a range for each condition in the same value string (e.g., "MD: 10 - 20 MPa | TD: 15 - 25 MPa").
+7. Include the unit in the value string.
 
 SOURCE PRIORITY WATERFALL -- follow this order strictly:
   Step 1. Check [Claim N] sections FIRST.
@@ -98,9 +98,8 @@ SOURCE PRIORITY WATERFALL -- follow this order strictly:
   Step 2. If NOT in claims -> check [Description] and [Example N] sections.
           If found -> use it. STOP here.
   Step 3. If NOT in description -> check [Table N] sections.
-          Use ONLY inventive/working examples. Do NOT use comparative or
-          reference examples. Record the table number and example number
-          in the source field (e.g. "Table 3, Example 4").
+          INVENTIVE FILTERING: When extracting from tables, you must analyze column/row headers. ONLY extract data from "Working" or "Inventive" examples. You must STRICTLY EXCLUDE data from "Comparative", "Reference", or "Prior Art" examples.
+          Record the table number and the summarized range of examples in the source field (e.g. "Table 3, Inventive Examples 1-5").
   Step 4. If not found anywhere -> return status "NOT_FOUND".
 
 Record which source you used in the source field of every extracted value.

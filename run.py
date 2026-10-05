@@ -164,17 +164,19 @@ def main() -> None:
     )
 
     # ── 3. Determine patents to process ───────────────────────────────────
+    all_patents = read_patent_numbers(
+        excel_path, sheet_name, col_map, start_row=args.start_row
+    )
     if args.patent:
-        # Single patent mode — find the right row or use first empty data row
-        patents_to_process: list[tuple[int, str]] = [(args.start_row, args.patent)]
+        # Single patent mode — find the right row
+        patents_to_process = [(r, p) for r, p in all_patents if p == args.patent]
+        if not patents_to_process:
+            logger.warning("Patent %s not found starting from row %d.", args.patent, args.start_row)
+            return
+    elif args.rows:
+        patents_to_process = [(r, p) for r, p in all_patents if r in args.rows]
     else:
-        all_patents = read_patent_numbers(
-            excel_path, sheet_name, col_map, start_row=args.start_row
-        )
-        if args.rows:
-            patents_to_process = [(r, p) for r, p in all_patents if r in args.rows]
-        else:
-            patents_to_process = all_patents
+        patents_to_process = all_patents
 
     logger.info("Patents to process: %d", len(patents_to_process))
 

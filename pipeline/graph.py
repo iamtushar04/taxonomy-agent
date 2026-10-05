@@ -15,6 +15,8 @@ Graph topology:
         ↓
     extract_values
         ↓
+    apply_rules
+        ↓
     validate
         ↓
     write_excel
@@ -31,6 +33,7 @@ from langgraph.graph import END, StateGraph
 
 from pipeline.nodes.describe_nodes import describe_nodes
 from pipeline.nodes.extract_values import extract_values
+from pipeline.nodes.apply_rules import apply_rules
 from pipeline.nodes.fetch_patent import fetch_patent
 from pipeline.nodes.match_relevance import match_relevance
 from pipeline.nodes.parse_content import parse_content
@@ -85,6 +88,7 @@ def build_graph(col_map: ExcelColumnMap) -> any:
     graph.add_node("describe_nodes",  describe_nodes)
     graph.add_node("match_relevance", match_relevance)
     graph.add_node("extract_values",  extract_values)
+    graph.add_node("apply_rules",     apply_rules)
     graph.add_node("validate",        validate)
     graph.add_node("write_excel",     write_excel_bound)
 
@@ -104,7 +108,8 @@ def build_graph(col_map: ExcelColumnMap) -> any:
     )
     graph.add_edge("describe_nodes",  "match_relevance")
     graph.add_edge("match_relevance", "extract_values")
-    graph.add_edge("extract_values",  "validate")
+    graph.add_edge("extract_values",  "apply_rules")
+    graph.add_edge("apply_rules",     "validate")
     graph.add_edge("validate",        "write_excel")
     graph.add_edge("write_excel",     END)
 
