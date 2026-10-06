@@ -79,14 +79,93 @@ def generate_excel_template(draft_tree: dict, output_path: str):
     wb.save(output_path)
 
 
+def generate_html_graph(draft_tree: dict, output_path: str):
+    def dict_to_echarts_tree(tree_dict):
+        children = []
+        for k, v in tree_dict.items():
+            node = {"name": k}
+            if isinstance(v, dict) and v:
+                node["children"] = dict_to_echarts_tree(v)
+            else:
+                node["value"] = 1
+            children.append(node)
+        return children
+
+    if "Technology" in draft_tree and len(draft_tree) == 1:
+        echarts_data = {"name": "Technology", "children": dict_to_echarts_tree(draft_tree["Technology"])}
+    else:
+        echarts_data = {"name": "Taxonomy Root", "children": dict_to_echarts_tree(draft_tree)}
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html style="height: 100%">
+    <head>
+        <meta charset="utf-8">
+        <title>Taxonomy Interactive Graph</title>
+        <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    </head>
+    <body style="height: 100%; margin: 0">
+        <div id="container" style="height: 100%"></div>
+        <script type="text/javascript">
+            var dom = document.getElementById('container');
+            var myChart = echarts.init(dom, null, {{
+              renderer: 'canvas',
+              useDirtyRect: false
+            }});
+            var data = {json.dumps(echarts_data)};
+            var option = {{
+              tooltip: {{ trigger: 'item', triggerOn: 'mousemove' }},
+              series: [
+                {{
+                  type: 'tree',
+                  data: [data],
+                  top: '1%',
+                  left: '10%',
+                  bottom: '1%',
+                  right: '20%',
+                  symbolSize: 10,
+                  label: {{
+                    position: 'left',
+                    verticalAlign: 'middle',
+                    align: 'right',
+                    fontSize: 14,
+                    fontWeight: 'bold'
+                  }},
+                  leaves: {{
+                    label: {{
+                      position: 'right',
+                      verticalAlign: 'middle',
+                      align: 'left',
+                      fontWeight: 'normal'
+                    }}
+                  }},
+                  emphasis: {{ focus: 'descendant' }},
+                  expandAndCollapse: true,
+                  animationDuration: 550,
+                  animationDurationUpdate: 750,
+                  initialTreeDepth: 3
+                }}
+              ]
+            }};
+            myChart.setOption(option);
+            window.addEventListener('resize', myChart.resize);
+        </script>
+    </body>
+    </html>
+    """
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+
 def format_taxonomy(state: TaxonomyGenerationState) -> dict:
     """
     Finalizes the taxonomy array, dumps it to a JSON file, 
-    and generates an Excel template formatted exactly like Fresh_Test.xlsx.
+    generates an Excel template, and generates an interactive HTML graph.
     """
     print("--- FORMATTING TAXONOMY ---")
     final_taxonomy = state.get("final_taxonomy", [])
     draft_tree = state.get("draft_tree", {})
+    run_id = state.get("run_id", "default")
     
     # 1. Write the JSON to data/
     json_path = r"c:\Users\Vipul\Desktop\taxonomies_agent\data\draft_taxonomy.json"
@@ -94,17 +173,24 @@ def format_taxonomy(state: TaxonomyGenerationState) -> dict:
         json.dump(final_taxonomy, f, indent=2)
     print(f"-> Wrote final taxonomy to {json_path}")
     
-    # 2. Write the Excel Template to data/ (dynamically named by run_id to avoid permission locks)
-    run_id = state.get("run_id", "default")
+    # 2. Write the Excel Template to data/
     excel_path = f"c:\\Users\\Vipul\\Desktop\\taxonomies_agent\\data\\taxonomy_template_{run_id}.xlsx"
     try:
         generate_excel_template(draft_tree, excel_path)
         print(f"-> Generated multi-level Excel template at {excel_path}")
     except Exception as e:
         print(f"Failed to generate Excel template: {e}")
+
+    # 3. Write the HTML Interactive Graph to data/
+    html_path = f"c:\\Users\\Vipul\\Desktop\\taxonomies_agent\\data\\taxonomy_graph_{run_id}.html"
+    try:
+        generate_html_graph(draft_tree, html_path)
+        print(f"-> Generated interactive HTML graph at {html_path}")
+    except Exception as e:
+        print(f"Failed to generate HTML graph: {e}")
         
-    out_data = {"run_id": state.get("run_id", "default")}
+    out_data = {"run_id": run_id}
     from taxonomy_builder.utils.tracer import log_node_event
-    log_node_event(state.get("run_id", "default"), "format_taxonomy", state, out_data)
+    log_node_event(run_id, "format_taxonomy", state, out_data)
         
     return out_data

@@ -6,8 +6,24 @@ from pipeline.utils.llm_client import chat_json
 
 logger = logging.getLogger(__name__)
 
-# Load model once globally to avoid reloading on every run
+# ── Generic concept blocklist ────────────────────────────────────────────────
+# These are common patent-language words that carry zero taxonomic value.
+# Any concept whose full name is in this set is dropped before embedding.
+GENERIC_BLOCKLIST = {
+    "method", "methods", "system", "systems", "device", "devices",
+    "apparatus", "process", "processes", "technique", "techniques",
+    "application", "applications", "approach", "approaches",
+    "material", "materials", "composition", "compositions",
+    "structure", "structures", "component", "components",
+    "mechanism", "mechanisms", "procedure", "procedures",
+    "invention", "embodiment", "embodiments", "feature", "features",
+    "property", "properties", "parameter", "parameters",
+    "step", "steps", "operation", "operations", "element", "elements",
+}
+
+# ── Embedding model (singleton) ───────────────────────────────────────────────
 _model = None
+
 def get_embedding_model():
     global _model
     if _model is None:
@@ -19,13 +35,17 @@ def get_embedding_model():
 
 def _batch_name_clusters(clusters: list[list[str]]) -> dict[int, str]:
     """
-    Fix 1: Name ALL clusters in a SINGLE LLM call instead of one call per cluster.
-    Previously: 117 LLM calls (slow, expensive, inconsistent naming style).
-    Now: 1 LLM call (fast, cheap, consistent naming across all clusters).
+    Name ALL clusters via batched LLM calls (max 50 clusters per call).
+    Chunking prevents token overflow when handling 200+ patents.
     """
-    clusters_payload = [{"id": i, "terms": c} for i, c in enumerate(clusters)]
+    BATCH_SIZE = 50
+    name_map: dict[int, str] = {}
 
-    prompt = f"""You are a technical terminology expert. Below are groups of synonymous terms extracted from patents.
+    for batch_start in range(0, len(clusters), BATCH_SIZE):
+        batch = clusters[batch_start : batch_start + BATCH_SIZE]
+        batch_payload = [{"id": batch_start + i, "terms": c} for i, c in enumerate(batch)]
+
+        prompt = f"""You are a technical terminology expert. Below are groups of synonymous terms extracted from patents.
 For each group, provide the single most professional, standard scientific name.
 
 RULES:
@@ -35,30 +55,30 @@ RULES:
 - Output ONLY a JSON object: {{"group_id": "Canonical Name", ...}}
 
 Groups to name:
-{json.dumps(clusters_payload, indent=2)}
+{json.dumps(batch_payload, indent=2)}
 """
+        try:
+            resp = chat_json(
+                messages=[{"role": "user", "content": prompt}],
+                cheap=True,
+                max_tokens=4000
+            )
+            for k, v in resp.items():
+                if str(k).isdigit():
+                    name_map[int(k)] = v
+        except Exception as e:
+            print(f"Batch naming failed for batch starting at {batch_start}: {e}. Using fallback names.")
 
-    try:
-        resp = chat_json(
-            messages=[{"role": "user", "content": prompt}],
-            cheap=True,
-            max_tokens=4000
-        )
-        # Keys may come back as strings; normalize to int
-        return {int(k): v for k, v in resp.items() if str(k).isdigit()}
-    except Exception as e:
-        print(f"Batch naming failed: {e}. Falling back to cluster[0].title().")
-        return {}
+    return name_map
 
 
 def deduplicate_concepts(state: TaxonomyGenerationState) -> dict:
     """
-    Fix 1 + domain_path aggregation:
-    - Uses open-source SentenceTransformers to cluster semantic duplicates.
-    - Names ALL clusters in ONE batched LLM call (was: one call per cluster).
-    - Aggregates domain_paths from raw concepts into each CanonicalConcept
-      so downstream nodes (group_concepts, build_hierarchy) can use patent-grounded
-      evidence for the tree backbone.
+    Improvements applied:
+    1. Generic concept blocklist — drops zero-value patent boilerplate before embedding.
+    2. Raised similarity threshold 0.85 → 0.88 — stricter deduplication, fewer near-duplicates.
+    3. Chunked batch naming (50 per call) — prevents token overflow at 100-200 patents.
+    4. Aggregates domain_paths from raw concepts into each CanonicalConcept.
     """
     print("--- DEDUPLICATING CONCEPTS (OPEN SOURCE EMBEDDINGS) ---")
     all_concepts = state.get("all_concepts", [])
@@ -68,19 +88,26 @@ def deduplicate_concepts(state: TaxonomyGenerationState) -> dict:
     model = get_embedding_model()
     from sentence_transformers import util
 
-    # 1. Get unique names to save embedding costs
+    # ── Step 1: Get unique names ──────────────────────────────────────────────
     unique_names = list(set([c.name.lower().strip() for c in all_concepts]))
     unique_names = [n for n in unique_names if n]
+
+    # ── Step 2: Blocklist filter ──────────────────────────────────────────────
+    before_blocklist = len(unique_names)
+    unique_names = [n for n in unique_names if n not in GENERIC_BLOCKLIST]
+    dropped = before_blocklist - len(unique_names)
+    if dropped:
+        print(f"Blocklist filter: removed {dropped} generic patent-language concepts.")
 
     if not unique_names:
         return {"canonical_concepts": []}
 
-    # 2. Fetch embeddings locally
+    # ── Step 3: Compute embeddings locally ───────────────────────────────────
     print(f"Computing local embeddings for {len(unique_names)} unique concepts...")
     embeddings_raw = model.encode(unique_names, convert_to_tensor=True)
 
-    # 3. Community detection clustering at 85% similarity
-    THRESHOLD = 0.85
+    # ── Step 4: Community detection at RAISED threshold (0.85 → 0.88) ────────
+    THRESHOLD = 0.88   # stricter — fewer near-duplicates slip through
     communities = util.community_detection(embeddings_raw, min_community_size=1, threshold=THRESHOLD)
 
     clusters = []
@@ -90,25 +117,25 @@ def deduplicate_concepts(state: TaxonomyGenerationState) -> dict:
 
     print(f"Reduced {len(unique_names)} raw concepts to {len(clusters)} canonical concepts.")
 
-    # 4. FIX 1: Batch ALL cluster naming in ONE LLM call
-    print(f"Naming {len(clusters)} clusters in a single batched LLM call...")
+    # ── Step 5: Chunked batch naming (50 per call) ───────────────────────────
+    print(f"Naming {len(clusters)} clusters (batched, 50 per call)...")
     name_map = _batch_name_clusters(clusters)
 
-    # 5. Build CanonicalConcepts with domain_path aggregation
+    # ── Step 6: Build CanonicalConcepts with aggregated domain_paths ─────────
     canonical_concepts = []
 
     for i, cluster in enumerate(clusters):
         canonical_name = name_map.get(i, clusters[i][0].title())
 
-        supporting_patent_ids = set()
-        supporting_contexts = []
-        domain_paths = []          # FIX: aggregate domain_paths from all raw concepts in cluster
+        supporting_patent_ids: set[str] = set()
+        supporting_contexts: list[str] = []
+        domain_paths: list[list[str]] = []
 
         for c in all_concepts:
             if c.name.lower().strip() in cluster:
                 supporting_patent_ids.add(c.patent_id)
                 supporting_contexts.append(c.context)
-                if c.domain_path:                      # domain_path from extract_concepts.py
+                if c.domain_path:
                     domain_paths.append(c.domain_path)
 
         canonical_concepts.append(
@@ -116,11 +143,10 @@ def deduplicate_concepts(state: TaxonomyGenerationState) -> dict:
                 name=canonical_name,
                 supporting_patent_ids=list(supporting_patent_ids),
                 supporting_contexts=supporting_contexts,
-                domain_paths=domain_paths              # FIX: populate new field
+                domain_paths=domain_paths
             )
         )
 
-    # Log domain_path coverage
     with_paths = sum(1 for c in canonical_concepts if c.domain_paths)
     print(f"Domain path coverage: {with_paths}/{len(canonical_concepts)} canonical concepts have domain ancestry.")
 
