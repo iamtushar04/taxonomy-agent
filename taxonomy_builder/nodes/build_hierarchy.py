@@ -80,10 +80,36 @@ IMPORTANT: The example above is for illustration only. Use the actual input conc
         import json
         skeleton_hint = f"\n\nSTRUCTURAL HINT (nested grouping from prior step — use as a guide, not a constraint):\n{json.dumps(concept_tree_skeleton, indent=2)}"
 
+    # FIX 3: Aggregate domain_paths across ALL canonical concepts to build backbone evidence
+    from collections import Counter
+
+    all_domain_paths = []
+    for concepts in concept_groups.values():
+        for c in concepts:
+            if hasattr(c, "domain_paths") and c.domain_paths:
+                all_domain_paths.extend(c.domain_paths)
+
+    backbone_evidence = ""
+    if all_domain_paths:
+        l2 = Counter(p[0] for p in all_domain_paths if len(p) >= 1)
+        l3 = Counter(p[1] for p in all_domain_paths if len(p) >= 2)
+        l4 = Counter(p[2] for p in all_domain_paths if len(p) >= 3)
+        total = len(all_domain_paths)
+
+        backbone_evidence = (
+            f"\n\nDOMAIN BACKBONE EVIDENCE (from {total} patent domain path signals — use these for Level 2/3/4 of your tree):\n"
+            f"  Level 2 (Broad Domain): " + ", ".join(f"{n} ({c} signals)" for n, c in l2.most_common(5)) + "\n"
+            f"  Level 3 (Tech Area):    " + ", ".join(f"{n} ({c} signals)" for n, c in l3.most_common(5)) + "\n"
+            f"  Level 4 (Sub-system):   " + ", ".join(f"{n} ({c} signals)" for n, c in l4.most_common(5)) + "\n"
+            f"CRITICAL: The Level 2 and Level 3 nodes in your tree MUST prioritize the top entries above.\n"
+            f"These are not suggestions — they are extracted directly from real patent text.\n"
+        )
+
     group_names = list(concept_groups.keys())
     user_prompt = (
         f"Build a deep hierarchical taxonomy tree for the following concept groups.\n\n"
         f"CONCEPT GROUPS WITH EVIDENCE:\n" + "\n".join(context_lines) +
+        backbone_evidence +  # FIX 3: inject backbone
         f"\n\nALL GROUP NAMES (must all appear in the tree):\n" + "\n".join(group_names) +
         skeleton_hint
     )

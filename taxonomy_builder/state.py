@@ -26,6 +26,10 @@ class CanonicalConcept(BaseModel):
     name: str = Field(description="The canonical name of the technical concept")
     supporting_patent_ids: list[str] = Field(description="List of patent IDs that mention this concept")
     supporting_contexts: list[str] = Field(description="List of context snippets for this concept")
+    domain_paths: list[list[str]] = Field(
+        default_factory=list,
+        description="Aggregated domain ancestry paths from all raw concepts in this cluster (e.g. [['Materials Science', 'Polymers', 'Mechanical Properties'], ...]). Used to ground the hierarchy backbone."
+    )
 
 # ---------------------------------------------------------------------------
 # Reduce Phase Schemas (Grouping & Hierarchy)
