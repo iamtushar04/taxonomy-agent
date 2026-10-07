@@ -21,3 +21,8 @@ __pycache__
 taxonomy_template.xlsx
 Note.txt
 tests/
+
+# Web App Ignores
+node_modules/
+dist/
+.env.local

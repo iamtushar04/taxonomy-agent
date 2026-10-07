@@ -101,67 +101,53 @@ def _place_groups_in_backbone(
     concept_groups: dict,
     context_lines: list[str],
 ) -> dict:
-    """
-    Stage B of two-stage hierarchy building.
-
-    Processes groups in BATCHES OF 10. For each batch, asks the LLM:
-    "Given this backbone, which path does each group belong under?"
-
-    The LLM returns a flat mapping of {group_name: [path_list]}, and we
-    programmatically insert each group at the correct location.
-
-    Since we iterate explicitly over every group, it is IMPOSSIBLE to drop any.
-    """
+    import copy
+    import difflib
+    
     BATCH_SIZE = 10
     group_names = list(concept_groups.keys())
-    # Build a context lookup for fast access
     context_lookup = {}
     for line in context_lines:
-        # line format: "- GroupName: concepts..."
         if line.startswith("- "):
             parts = line[2:].split(":", 1)
             if len(parts) == 2:
                 context_lookup[parts[0].strip()] = parts[1].strip()
 
-    system = """You are a taxonomy expert. You have a backbone taxonomy tree and a list of concept groups that must be inserted into it.
-
-For each group, output the EXACT path (list of node names from root) where the group should be inserted as a child.
-
-RULES:
-1. The path MUST start with "Technology"
-2. The path MUST only use node names that EXIST in the backbone provided
-3. Every group MUST be placed — do not skip any
-4. Choose the most logically appropriate parent for each group
-5. If unsure, place under the closest relevant parent (never leave a group unplaced)
-
-OUTPUT FORMAT:
-Return a single JSON object mapping each group name to its path:
-{
-  "Group Name A": ["Technology", "Level2", "Level3"],
-  "Group Name B": ["Technology", "Level2"]
-}
-"""
-
-    import copy
     result_tree = copy.deepcopy(backbone)
-
     total_batches = (len(group_names) + BATCH_SIZE - 1) // BATCH_SIZE
     placed = 0
-    failed = []
 
     for batch_idx in range(0, len(group_names), BATCH_SIZE):
         batch = group_names[batch_idx : batch_idx + BATCH_SIZE]
         batch_num = batch_idx // BATCH_SIZE + 1
 
-        # Build batch-specific context
         batch_context = []
         for g in batch:
             ctx = context_lookup.get(g, "no context")
             batch_context.append(f"- {g}: {ctx}")
 
+        system = f"""You are a taxonomy expert. You have a backbone taxonomy tree and a list of concept groups that must be inserted into it.
+
+For each group, output the EXACT path (list of node names from root) where the group should be inserted as a child.
+
+CRITICAL RULES:
+1. The path MUST start with "Technology"
+2. The path MUST only use node names that EXIST in the backbone provided
+3. You MUST output a JSON object containing EXACTLY these {len(batch)} keys:
+{json.dumps(batch, indent=2)}
+4. Choose the most logically appropriate parent for each group. If unsure, place under the closest relevant parent.
+
+OUTPUT FORMAT:
+Return a single JSON object mapping each group name to its path:
+{{
+  "{batch[0]}": ["Technology", "Level2", "Level3"],
+  ...
+}}
+"""
+
         user = (
             f"BACKBONE TREE:\n{json.dumps(result_tree, indent=2)}\n\n"
-            f"CONCEPT GROUPS TO PLACE (batch {batch_num}/{total_batches}):\n"
+            f"CONCEPT GROUPS TO PLACE:\n"
             + "\n".join(batch_context)
             + "\n\nOutput the placement path for each group."
         )
@@ -173,17 +159,28 @@ Return a single JSON object mapping each group name to its path:
                     {"role": "user", "content": user}
                 ],
                 cheap=False,
-                max_tokens=1000
+                max_tokens=1500
             )
 
+            # Map the LLM's returned keys in case of slight hallucination
+            llm_keys = list(placements.keys())
+            
             for group_name in batch:
+                # 1. Try exact match
                 path = placements.get(group_name)
+                
+                # 2. Try fuzzy match if exact fails
+                if not path:
+                    matches = difflib.get_close_matches(group_name, llm_keys, n=1, cutoff=0.6)
+                    if matches:
+                        path = placements.get(matches[0])
+                        print(f"  Fuzzy matched LLM key '{matches[0]}' to expected group '{group_name}'")
+
                 if path and isinstance(path, list) and len(path) >= 1:
                     parent_node = _navigate_to_path(result_tree, path)
                     parent_node[group_name] = {}
                     placed += 1
                 else:
-                    # Fallback: attach to Technology root if path missing
                     result_tree.setdefault("Technology", {})[group_name] = {}
                     placed += 1
                     print(f"  No valid path for '{group_name}' — attached to Technology root.")
