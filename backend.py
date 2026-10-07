@@ -7,12 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict
 
-import os
-# Add the parent folder to the Python path so it can find taxonomy_builder
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
-
 from taxonomy_builder.graph import build_taxonomy_graph
 from taxonomy_builder.utils.tracer import init_trace
 
@@ -81,17 +75,3 @@ async def get_taxonomy(run_id: str):
     if info["status"] != "completed":
         raise HTTPException(status_code=400, detail="Not ready.")
     return {"run_id": run_id, "taxonomy": info.get("result", [])}
-
-@app.get("/api/download-excel/{run_id}")
-async def download_excel(run_id: str):
-    import os
-    # pyrefly: ignore [missing-import]
-    from fastapi.responses import FileResponse
-    file_path = os.path.join(parent_dir, "data", f"taxonomy_matrix_{run_id}.xlsx")
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Excel file not found for this run.")
-    return FileResponse(
-        path=file_path, 
-        filename=f"Patent_Matrix_{run_id}.xlsx", 
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )

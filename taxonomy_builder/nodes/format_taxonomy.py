@@ -2,6 +2,7 @@ import json
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
 from taxonomy_builder.state import TaxonomyGenerationState
+from taxonomy_builder.utils.excel_matrix_generator import generate_dynamic_matrix_excel
 
 def generate_excel_template(draft_tree: dict, output_path: str):
     wb = openpyxl.Workbook()
@@ -180,6 +181,35 @@ def format_taxonomy(state: TaxonomyGenerationState) -> dict:
         print(f"-> Generated multi-level Excel template at {excel_path}")
     except Exception as e:
         print(f"Failed to generate Excel template: {e}")
+
+    # 2.5 Write the Dynamic Matrix Excel (Rows = Patents, Cols = Taxonomy Nodes)
+    matrix_path = f"c:\\Users\\Vipul\\Desktop\\taxonomies_agent\\data\\taxonomy_matrix_{run_id}.xlsx"
+    try:
+        patents_data = state.get("patents_data", {})
+
+        # Rebuild the COMPLETE tree from final_taxonomy (includes injected granular leaf nodes)
+        def _rebuild_tree_from_taxonomy(taxonomy_nodes: list) -> dict:
+            nodes_by_id = {n["node_id"]: n for n in taxonomy_nodes}
+            roots = [n for n in taxonomy_nodes if n["parent_node_id"] is None]
+
+            def _build(node_id):
+                children = [n for n in taxonomy_nodes if n["parent_node_id"] == node_id]
+                if not children:
+                    return {}
+                return {c["name"]: _build(c["node_id"]) for c in children}
+
+            tree = {}
+            for root in roots:
+                tree[root["name"]] = _build(root["node_id"])
+            return tree
+
+        enriched_tree = _rebuild_tree_from_taxonomy(final_taxonomy)
+        generate_dynamic_matrix_excel(patents_data, final_taxonomy, enriched_tree, matrix_path)
+        print(f"-> Generated dynamic Matrix Excel at {matrix_path}")
+    except Exception as e:
+        import traceback
+        print(f"Failed to generate Matrix Excel: {e}")
+        traceback.print_exc()
 
     # 3. Write the HTML Interactive Graph to data/
     html_path = f"c:\\Users\\Vipul\\Desktop\\taxonomies_agent\\data\\taxonomy_graph_{run_id}.html"

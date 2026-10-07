@@ -61,6 +61,7 @@ const getLayoutedElements = (nodes, edges) => {
 // --- CUSTOM NODE ---
 const MindmapNode = ({ id, data }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
   const { setNodes, setEdges, getNodes, getEdges } = useReactFlow();
 
   const applyLayoutAndState = (newNodes, newEdges) => {
@@ -172,8 +173,35 @@ const MindmapNode = ({ id, data }) => {
     >
       <Handle type="target" position={Position.Left} style={{ background: '#a0c0e8', width: '8px', height: '8px', border: 'none' }} />
       
-      <div style={{ padding: '0 5px', userSelect: 'none' }}>
+      <div style={{ padding: '0 5px', userSelect: 'none', display: 'flex', alignItems: 'center' }}>
         {data.label}
+        {data.contexts_by_patent && Object.keys(data.contexts_by_patent).length > 0 && (
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', marginLeft: 6 }}
+               onMouseEnter={() => setShowTooltip(true)}
+               onMouseLeave={() => setShowTooltip(false)}>
+            <span style={{ cursor: 'help', fontSize: '13px', opacity: 0.7 }}>ℹ️</span>
+            {showTooltip && (
+              <div style={{
+                position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: 8,
+                width: 300, background: '#222', color: '#fff', padding: '10px 14px', borderRadius: 8,
+                fontSize: 12, zIndex: 1000, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', lineHeight: 1.4,
+                cursor: 'default', maxHeight: '200px', overflowY: 'auto'
+              }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ fontWeight: 'bold', marginBottom: 8, color: '#a0c0e8', borderBottom: '1px solid #444', paddingBottom: 4 }}>Patent Contexts</div>
+                {Object.entries(data.contexts_by_patent).map(([pid, ctxs], idx, arr) => (
+                  <div key={pid} style={{ marginBottom: idx < arr.length - 1 ? 8 : 0 }}>
+                    <div style={{ fontWeight: 'bold', color: '#ffd700', fontSize: '11px', marginBottom: 2 }}>{pid}</div>
+                    {ctxs.map((ctx, i) => (
+                      <div key={i} style={{ paddingLeft: 6, borderLeft: '2px solid #555', marginBottom: 4 }}>
+                        "{ctx}"
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {hasChildren && <span style={{ marginLeft: 8, color: '#aaa', fontSize: '10px' }}>{data.isExpanded ? '▼' : '▶'}</span>}
       </div>
 
@@ -193,6 +221,7 @@ const MindmapNode = ({ id, data }) => {
 function TaxonomyEditor() {
   const [patentInput, setPatentInput] = useState('US20170349734A1, US11691998B2');
   const [status, setStatus] = useState('idle');
+  const [currentRunId, setCurrentRunId] = useState(null);
   
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -245,9 +274,20 @@ function TaxonomyEditor() {
         if (res.data.status === 'completed') {
           clearInterval(interval);
           setStatus('completed');
+          setCurrentRunId(id);
           fetchGraph(id);
+        } else if (res.data.status === 'failed') {
+          clearInterval(interval);
+          setStatus('idle');
+          alert("Pipeline failed: " + res.data.error);
         }
-      } catch (e) {}
+      } catch (e) {
+        if (e.response && e.response.status === 404) {
+          clearInterval(interval);
+          setStatus('idle');
+          console.warn("Pipeline interrupted (server restart or invalid ID).");
+        }
+      }
     }, 5000);
   };
 
@@ -265,7 +305,7 @@ function TaxonomyEditor() {
       initialNodes.push({
         id: item.node_id,
         type: 'mindmap',
-        data: { label: item.name, isExpanded, saveHistory },
+        data: { label: item.name, isExpanded, saveHistory, patent_contexts: item.patent_contexts },
         position: { x: 0, y: 0 },
         hidden: isHidden
       });
@@ -313,6 +353,12 @@ function TaxonomyEditor() {
         <button onClick={handleRunPipeline} disabled={status === 'running'} style={{ marginLeft: 10, padding: '8px 15px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
           {status === 'running' ? 'Running Pipeline...' : 'Generate Graph'}
         </button>
+        {currentRunId && (
+          <button onClick={() => window.open(`http://127.0.0.1:8000/api/download-excel/${currentRunId}`, '_blank')} 
+                  style={{ marginLeft: 10, padding: '8px 15px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+            Download Excel Report 📥
+          </button>
+        )}
       </div>
 
       <div style={{ flex: 1, background: '#fdfdfd' }}>

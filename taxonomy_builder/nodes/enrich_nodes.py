@@ -10,6 +10,8 @@ def flatten_and_enrich_tree(tree: dict, parent_id: str | None, current_level: in
         node_id = f"T_{str(uuid.uuid4())[:8]}"
 
         supporting_patents = set()
+        patent_contexts = []
+        contexts_by_patent = {}
 
         # Group node: attach patents from all canonical concepts in this group
         if node_name in concept_groups:
@@ -21,6 +23,11 @@ def flatten_and_enrich_tree(tree: dict, parent_id: str | None, current_level: in
         if node_name in concept_by_name:
             for pid in concept_by_name[node_name].supporting_patent_ids:
                 supporting_patents.add(pid)
+            if hasattr(concept_by_name[node_name], "supporting_contexts"):
+                patent_contexts.extend(concept_by_name[node_name].supporting_contexts)
+            if hasattr(concept_by_name[node_name], "contexts_by_patent"):
+                for pid, ctxs in concept_by_name[node_name].contexts_by_patent.items():
+                    contexts_by_patent.setdefault(pid, []).extend(ctxs)
 
         node_dict = {
             "node_id": node_id,
@@ -28,7 +35,9 @@ def flatten_and_enrich_tree(tree: dict, parent_id: str | None, current_level: in
             "name": node_name,
             "level": current_level,
             "description": descriptions.get(node_name, f"Patent information related to {node_name}."),
-            "supporting_patent_ids": list(supporting_patents)
+            "supporting_patent_ids": list(supporting_patents),
+            "patent_contexts": patent_contexts,
+            "contexts_by_patent": contexts_by_patent
         }
 
         flat_nodes.append(node_dict)

@@ -129,12 +129,14 @@ def deduplicate_concepts(state: TaxonomyGenerationState) -> dict:
 
         supporting_patent_ids: set[str] = set()
         supporting_contexts: list[str] = []
+        contexts_by_patent: dict[str, list[str]] = {}
         domain_paths: list[list[str]] = []
 
         for c in all_concepts:
             if c.name.lower().strip() in cluster:
                 supporting_patent_ids.add(c.patent_id)
                 supporting_contexts.append(c.context)
+                contexts_by_patent.setdefault(c.patent_id, []).append(c.context)
                 if c.domain_path:
                     domain_paths.append(c.domain_path)
 
@@ -143,6 +145,7 @@ def deduplicate_concepts(state: TaxonomyGenerationState) -> dict:
                 name=canonical_name,
                 supporting_patent_ids=list(supporting_patent_ids),
                 supporting_contexts=supporting_contexts,
+                contexts_by_patent=contexts_by_patent,
                 domain_paths=domain_paths
             )
         )

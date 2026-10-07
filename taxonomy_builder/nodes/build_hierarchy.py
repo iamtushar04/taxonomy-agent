@@ -176,6 +176,16 @@ Return a single JSON object mapping each group name to its path:
                         path = placements.get(matches[0])
                         print(f"  Fuzzy matched LLM key '{matches[0]}' to expected group '{group_name}'")
 
+                if path:
+                    # Fix LLM hallucinating a string instead of a list (e.g. "Technology > Heating")
+                    if isinstance(path, str):
+                        if " > " in path:
+                            path = path.split(" > ")
+                        elif "/" in path:
+                            path = path.split("/")
+                        else:
+                            path = [path]
+                            
                 if path and isinstance(path, list) and len(path) >= 1:
                     parent_node = _navigate_to_path(result_tree, path)
                     parent_node[group_name] = {}
