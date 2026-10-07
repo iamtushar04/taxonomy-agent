@@ -51,19 +51,50 @@ def _clean_text(text: str) -> str:
 
 
 def _table_to_markdown(table_tag: Tag) -> str:
-    """Convert a BeautifulSoup <table> to a compact markdown table string."""
+    """Convert a BeautifulSoup <table> to a compact markdown table string, respecting colspan and rowspan."""
     rows = table_tag.find_all("tr")
     if not rows:
         return ""
 
-    md_rows = []
-    for i, row in enumerate(rows):
+    grid = {}
+    max_col = 0
+    
+    for r_idx, row in enumerate(rows):
         cells = row.find_all(["th", "td"])
-        cell_texts = [_clean_text(c.get_text()) for c in cells]
-        md_rows.append("| " + " | ".join(cell_texts) + " |")
-        if i == 0:
-            # Separator after header row
-            md_rows.append("|" + "|".join(["---"] * len(cells)) + "|")
+        c_idx = 0
+        for cell in cells:
+            while grid.get((r_idx, c_idx)) is not None:
+                c_idx += 1
+            
+            try:
+                colspan = int(cell.get("colspan", 1))
+            except (ValueError, TypeError):
+                colspan = 1
+                
+            try:
+                rowspan = int(cell.get("rowspan", 1))
+            except (ValueError, TypeError):
+                rowspan = 1
+                
+            text = _clean_text(cell.get_text())
+            
+            for r in range(rowspan):
+                for c in range(colspan):
+                    # Repeat text to ensure every expanded column has the label explicitly
+                    grid[(r_idx + r, c_idx + c)] = text 
+            
+            c_idx += colspan
+            max_col = max(max_col, c_idx)
+
+    if max_col == 0:
+        return ""
+
+    md_rows = []
+    for r_idx in range(len(rows)):
+        row_data = [grid.get((r_idx, c), "") for c in range(max_col)]
+        md_rows.append("| " + " | ".join(row_data) + " |")
+        if r_idx == 0:
+            md_rows.append("|" + "|".join(["---"] * max_col) + "|")
 
     return "\n".join(md_rows)
 
