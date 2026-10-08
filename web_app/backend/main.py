@@ -27,15 +27,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-tasks_db: Dict[str, dict] = {}
+# pyrefly: ignore [missing-import]
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends
+# pyrefly: ignore [missing-import]
+from sqlalchemy.orm import Session
+# pyrefly: ignore [missing-import]
+from database import engine, Base, get_db, SessionLocal
+# pyrefly: ignore [missing-import]
+import models
+
+# Create database tables
+Base.metadata.create_all(bind=engine)
 
 class PatentRequest(BaseModel):
     patent_ids: List[str]
 
 def run_taxonomy_pipeline(run_id: str, patent_ids: List[str]):
     try:
-        tasks_db[run_id]["status"] = "running"
-        
+        db = SessionLocal()
+        run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
+        if run_record:
+            run_record.status = "running"
+            db.commit()
+            
         # Clean up IDs: Users might paste "12345 67890" without commas
         cleaned_ids = []
         for raw_id in patent_ids:
@@ -69,41 +83,55 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str]):
         
         final_state = graph.invoke(initial_state, config=config)
         
-        tasks_db[run_id]["status"] = "completed"
-        tasks_db[run_id]["result"] = final_state.get("final_taxonomy", [])
-        tasks_db[run_id]["source_data"] = final_state.get("pubmed_data", final_state.get("patents_data", {}))
-        tasks_db[run_id]["is_pubmed"] = is_pubmed
+        run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
+        if run_record:
+            run_record.status = "completed"
+            run_record.final_taxonomy = final_state.get("final_taxonomy", [])
+            run_record.source_data = final_state.get("pubmed_data", final_state.get("patents_data", {}))
+            run_record.is_pubmed = is_pubmed
+            db.commit()
     except Exception as e:
-        tasks_db[run_id]["status"] = "failed"
-        tasks_db[run_id]["error"] = str(e)
+        run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
+        if run_record:
+            run_record.status = "failed"
+            run_record.error_message = str(e)
+            db.commit()
+    finally:
+        db.close()
 
 @app.post("/api/build-taxonomy")
-async def build_taxonomy(request: PatentRequest, background_tasks: BackgroundTasks):
+async def build_taxonomy(request: PatentRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if not request.patent_ids:
         raise HTTPException(status_code=400, detail="Must provide at least one patent ID.")
     run_id = str(uuid.uuid4())[:8]
-    tasks_db[run_id] = {"status": "pending", "patent_ids": request.patent_ids}
+    
+    new_run = models.Run(id=run_id, status="pending", input_ids=request.patent_ids)
+    db.add(new_run)
+    db.commit()
+    
     background_tasks.add_task(run_taxonomy_pipeline, run_id, request.patent_ids)
     return {"run_id": run_id, "message": "Started"}
 
 @app.get("/api/status/{run_id}")
-async def get_status(run_id: str):
-    if run_id not in tasks_db:
+async def get_status(run_id: str, db: Session = Depends(get_db)):
+    run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
+    if not run_record:
         raise HTTPException(status_code=404, detail="Not found.")
-    info = tasks_db[run_id]
-    resp = {"run_id": run_id, "status": info["status"]}
-    if info["status"] == "failed":
-        resp["error"] = info.get("error")
+        
+    resp = {"run_id": run_id, "status": run_record.status}
+    if run_record.status == "failed":
+        resp["error"] = run_record.error_message
     return resp
 
 @app.get("/api/taxonomy/{run_id}")
-async def get_taxonomy(run_id: str):
-    if run_id not in tasks_db:
+async def get_taxonomy(run_id: str, db: Session = Depends(get_db)):
+    run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
+    if not run_record:
         raise HTTPException(status_code=404, detail="Not found.")
-    info = tasks_db[run_id]
-    if info["status"] != "completed":
+        
+    if run_record.status != "completed":
         raise HTTPException(status_code=400, detail="Not ready.")
-    return {"run_id": run_id, "taxonomy": info.get("result", [])}
+    return {"run_id": run_id, "taxonomy": run_record.final_taxonomy or []}
 
 from pydantic import BaseModel
 from typing import Optional
@@ -128,16 +156,17 @@ class GraphPayload(BaseModel):
     edges: list[GraphEdge]
 
 @app.post("/api/download-excel/{run_id}")
-async def download_excel(run_id: str, payload: GraphPayload):
+async def download_excel(run_id: str, payload: GraphPayload, db: Session = Depends(get_db)):
     import os
     # pyrefly: ignore [missing-import]
     from fastapi.responses import FileResponse
     
-    if run_id not in tasks_db:
+    run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
+    if not run_record:
         raise HTTPException(status_code=404, detail="Run ID not found.")
         
-    is_pubmed = tasks_db[run_id].get("is_pubmed", False)
-    source_data = tasks_db[run_id].get("source_data", {})
+    is_pubmed = run_record.is_pubmed
+    source_data = run_record.source_data or {}
     
     # Rebuild flat taxonomy from payload
     parent_map = {e.target: e.source for e in payload.edges}
@@ -154,9 +183,7 @@ async def download_excel(run_id: str, payload: GraphPayload):
             "level": 0, 
             "description": "",
             "supporting_pmids": list(pmids),
-            "supporting_patent_ids": list(patents),
-            "contexts_by_pmid": n.data.contexts_by_pmid or {},
-            "contexts_by_patent": n.data.contexts_by_patent or {}
+            "supporting_patent_ids": list(patents)
         })
         
     # Bubble up patents

@@ -17,3 +17,6 @@ dependencies = [
     "sentence-transformers>=6.1.0",
     "tenacity>=9.1.4",
 ]
+
+[tool.setuptools.packages.find]
+include = ["taxonomy_builder*", "pipeline*"]
