@@ -17,7 +17,7 @@ services:
       context: .
       dockerfile: web_app/backend/Dockerfile
     ports:
-      - "8000:8000"
+      - "8518:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:wissen67@db:5432/taxonomy_db
       - IN_DOCKER=1
@@ -34,7 +34,7 @@ services:
       context: ./web_app/ui
       dockerfile: Dockerfile
     ports:
-      - "80:80"
+      - "8519:80"
     depends_on:
       - backend
 

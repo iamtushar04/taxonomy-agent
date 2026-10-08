@@ -19,9 +19,12 @@ from taxonomy_builder.utils.tracer import init_trace
 app = FastAPI(title="Taxonomy Builder API")
 
 # Allow the React frontend to talk to this API
+frontend_url = os.environ.get("FRONTEND_URL", "*")
+origins = [url.strip() for url in frontend_url.split(",")] if frontend_url != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow all for local dev
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

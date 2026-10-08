@@ -17,6 +17,8 @@ import 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import axios from 'axios';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8518';
+
 // --- DAGRE LAYOUT ---
 const getLayoutedElements = (nodes, edges) => {
   const dagreGraph = new dagre.graphlib.Graph();
@@ -259,7 +261,7 @@ function TaxonomyEditor() {
     try {
       setStatus('running');
       const patentList = patentInput.split(',').map((id) => id.trim());
-      const res = await axios.post('http://127.0.0.1:8000/api/build-taxonomy', { patent_ids: patentList });
+      const res = await axios.post(`${API_BASE_URL}/api/build-taxonomy`, { patent_ids: patentList });
       pollStatus(res.data.run_id);
     } catch (error) {
       alert("Error starting pipeline.");
@@ -270,7 +272,7 @@ function TaxonomyEditor() {
   const pollStatus = async (id) => {
     const interval = setInterval(async () => {
       try {
-        const res = await axios.get(`http://127.0.0.1:8000/api/status/${id}`);
+        const res = await axios.get(`${API_BASE_URL}/api/status/${id}`);
         if (res.data.status === 'completed') {
           clearInterval(interval);
           setStatus('completed');
@@ -292,7 +294,7 @@ function TaxonomyEditor() {
   };
 
   const fetchGraph = async (id) => {
-    const res = await axios.get(`http://127.0.0.1:8000/api/taxonomy/${id}`);
+    const res = await axios.get(`${API_BASE_URL}/api/taxonomy/${id}`);
     const taxonomyArray = res.data.taxonomy;
 
     const initialNodes = [];
@@ -389,7 +391,7 @@ function TaxonomyEditor() {
   const handleDownload = async () => {
     try {
       setStatus('running'); // visual feedback
-      const response = await axios.post(`http://127.0.0.1:8000/api/download-excel/${currentRunId}`, {
+      const response = await axios.post(`${API_BASE_URL}/api/download-excel/${currentRunId}`, {
         nodes: getNodes(),
         edges: getEdges()
       }, {
