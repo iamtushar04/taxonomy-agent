@@ -149,6 +149,8 @@ class GraphNodeData(BaseModel):
     contexts_by_pmid: Optional[dict[str, list[str]]] = None
     patent_contexts: Optional[list[str]] = None
     isExpanded: Optional[bool] = None
+    supporting_patent_ids: Optional[list[str]] = None
+    supporting_pmids: Optional[list[str]] = None
 
 class GraphNode(BaseModel):
     id: str
@@ -176,8 +178,15 @@ async def download_excel(run_id: str, payload: GraphPayload, db: Session = Depen
     flat_nodes = []
     
     for n in payload.nodes:
-        pmids = set(n.data.contexts_by_pmid.keys()) if n.data.contexts_by_pmid else set()
-        patents = set(n.data.contexts_by_patent.keys()) if n.data.contexts_by_patent else set()
+        # Pull PMIDs either from supporting_pmids or from contexts_by_pmid keys
+        pmids = set(n.data.supporting_pmids) if n.data.supporting_pmids else set()
+        if not pmids and n.data.contexts_by_pmid:
+            pmids = set(n.data.contexts_by_pmid.keys())
+            
+        # Pull Patents either from supporting_patent_ids or from contexts_by_patent keys
+        patents = set(n.data.supporting_patent_ids) if n.data.supporting_patent_ids else set()
+        if not patents and n.data.contexts_by_patent:
+            patents = set(n.data.contexts_by_patent.keys())
         
         flat_nodes.append({
             "node_id": n.id,
@@ -186,7 +195,9 @@ async def download_excel(run_id: str, payload: GraphPayload, db: Session = Depen
             "level": 0, 
             "description": "",
             "supporting_pmids": list(pmids),
-            "supporting_patent_ids": list(patents)
+            "supporting_patent_ids": list(patents),
+            "contexts_by_patent": n.data.contexts_by_patent or {},
+            "contexts_by_pmid": n.data.contexts_by_pmid or {}
         })
         
     # Bubble up patents

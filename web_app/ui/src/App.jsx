@@ -313,7 +313,9 @@ function TaxonomyEditor() {
           saveHistory, 
           patent_contexts: item.patent_contexts,
           contexts_by_patent: item.contexts_by_patent,
-          contexts_by_pmid: item.contexts_by_pmid
+          contexts_by_pmid: item.contexts_by_pmid,
+          supporting_patent_ids: item.supporting_patent_ids,
+          supporting_pmids: item.supporting_pmids
         },
         position: { x: 0, y: 0 },
         hidden: isHidden
