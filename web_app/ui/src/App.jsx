@@ -305,7 +305,14 @@ function TaxonomyEditor() {
       initialNodes.push({
         id: item.node_id,
         type: 'mindmap',
-        data: { label: item.name, isExpanded, saveHistory, patent_contexts: item.patent_contexts },
+        data: { 
+          label: item.name, 
+          isExpanded, 
+          saveHistory, 
+          patent_contexts: item.patent_contexts,
+          contexts_by_patent: item.contexts_by_patent,
+          contexts_by_pmid: item.contexts_by_pmid
+        },
         position: { x: 0, y: 0 },
         hidden: isHidden
       });
@@ -342,6 +349,68 @@ function TaxonomyEditor() {
     [getNodes, getEdges, setNodes, setEdges, saveHistory]
   );
 
+  const onEdgesDelete = useCallback(
+    (edgesToDelete) => {
+      const allEdges = getEdges();
+      const allNodes = getNodes();
+      let edgesToRemove = [...edgesToDelete];
+      let nodesToRemove = [];
+      
+      edgesToDelete.forEach(deletedEdge => {
+        const targetId = deletedEdge.target;
+        const incomingEdges = allEdges.filter(e => e.target === targetId && !edgesToDelete.find(d => d.id === e.id));
+        
+        if (incomingEdges.length === 0) {
+          const getDescendants = (nodeId, currentEdges) => {
+            let desc = [nodeId];
+            const children = currentEdges.filter(e => e.source === nodeId).map(e => e.target);
+            for (const child of children) {
+              desc = desc.concat(getDescendants(child, currentEdges));
+            }
+            return desc;
+          };
+          const toDelete = getDescendants(targetId, allEdges);
+          nodesToRemove = [...new Set([...nodesToRemove, ...toDelete])];
+        }
+      });
+
+      if (nodesToRemove.length > 0) {
+         const newNodes = allNodes.filter(n => !nodesToRemove.includes(n.id));
+         const newEdges = allEdges.filter(e => !nodesToRemove.includes(e.source) && !nodesToRemove.includes(e.target) && !edgesToRemove.find(d => d.id === e.id));
+         const layouted = getLayoutedElements(newNodes, newEdges);
+         setNodes(layouted.nodes);
+         setEdges(layouted.edges);
+         saveHistory(layouted.nodes, layouted.edges);
+      }
+    },
+    [getNodes, getEdges, setNodes, setEdges, saveHistory]
+  );
+
+  const handleDownload = async () => {
+    try {
+      setStatus('running'); // visual feedback
+      const response = await axios.post(`http://127.0.0.1:8000/api/download-excel/${currentRunId}`, {
+        nodes: getNodes(),
+        edges: getEdges()
+      }, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Taxonomy_Matrix_${currentRunId}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setStatus('completed');
+    } catch (error) {
+      console.error(error);
+      alert("Failed to download excel");
+      setStatus('completed');
+    }
+  };
+
   return (
     <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: 15, background: '#fff', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', zIndex: 10 }}>
@@ -354,7 +423,7 @@ function TaxonomyEditor() {
           {status === 'running' ? 'Running Pipeline...' : 'Generate Graph'}
         </button>
         {currentRunId && (
-          <button onClick={() => window.open(`http://127.0.0.1:8000/api/download-excel/${currentRunId}`, '_blank')} 
+          <button onClick={handleDownload} 
                   style={{ marginLeft: 10, padding: '8px 15px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
             Download Excel Report 📥
           </button>
@@ -369,6 +438,7 @@ function TaxonomyEditor() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onEdgesDelete={onEdgesDelete}
           fitView
           minZoom={0.1}
         >

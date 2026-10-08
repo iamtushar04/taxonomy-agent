@@ -94,7 +94,8 @@ def log_node_event(run_id: str, node_name: str, state: TaxonomyGenerationState, 
         _append(run_id, "global_trace.md", f"**Deduplication (Embeddings):** Reduced raw concepts to **{len(canonical_concepts)}** Canonical Concepts.\n")
         _append(run_id, "global_trace.md", "<details>\n<summary><b>View Canonical Concepts</b></summary>\n")
         for cc in canonical_concepts:
-            _append(run_id, "global_trace.md", f"- **{cc.name}** (from {len(cc.supporting_patent_ids)} patents)")
+            support_list = getattr(cc, "supporting_patent_ids", getattr(cc, "supporting_pmids", []))
+            _append(run_id, "global_trace.md", f"- **{cc.name}** (from {len(support_list)} documents)")
         _append(run_id, "global_trace.md", "</details>\n---\n")
 
     elif node_name == "group_concepts":
@@ -123,8 +124,9 @@ def log_node_event(run_id: str, node_name: str, state: TaxonomyGenerationState, 
         _append(run_id, "global_trace.md", "Attached source patent IDs to leaf nodes and generated descriptions.\n")
         _append(run_id, "global_trace.md", "<details>\n<summary><b>View Node Descriptions</b></summary>\n")
         for node in final_taxonomy:
+            support_list = node.get('supporting_patent_ids', node.get('supporting_pmids', []))
             _append(run_id, "global_trace.md", f"- **{node['name']}** (Level {node['level']}): {node['description']}")
-            _append(run_id, "global_trace.md", f"  - *Supported by {len(node['supporting_patent_ids'])} patents*")
+            _append(run_id, "global_trace.md", f"  - *Supported by {len(support_list)} documents*")
         _append(run_id, "global_trace.md", "</details>\n---\n")
 
     elif node_name == "format_taxonomy":
