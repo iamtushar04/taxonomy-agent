@@ -13,7 +13,8 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/pip pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # Install all the agent's dependencies from the root pyproject.toml (langgraph, openai, etc.)
-RUN --mount=type=cache,target=/root/.cache/pip pip install .
+# We must use --no-cache-dir here, otherwise pip will reuse the old cached wheel for this package!
+RUN pip install --no-cache-dir .
 
 WORKDIR /app/web_app/backend
 

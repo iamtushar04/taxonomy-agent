@@ -47,7 +47,7 @@ def _deduplicate_group_names(concept_groups: dict) -> dict:
         return concept_groups
 
     try:
-        from sentence_transformers import SentenceTransformer, util
+        from taxonomy_builder.utils.embedding_utils import community_detection
         # Re-use already loaded model if available (avoids re-loading ~400MB model)
         from taxonomy_builder.nodes.deduplicate_concepts import get_embedding_model
         model = get_embedding_model()
@@ -56,10 +56,10 @@ def _deduplicate_group_names(concept_groups: dict) -> dict:
         return concept_groups
 
     group_names = list(concept_groups.keys())
-    embeddings = model.encode(group_names, convert_to_tensor=True)
+    embeddings = list(model.embed(group_names))
 
     GROUP_DEDUP_THRESHOLD = 0.90  # Stricter than concept-level (0.88)
-    communities = util.community_detection(embeddings, min_community_size=1, threshold=GROUP_DEDUP_THRESHOLD)
+    communities = community_detection(embeddings, min_community_size=1, threshold=GROUP_DEDUP_THRESHOLD)
 
     merged_groups: dict = {}
     for community in communities:
