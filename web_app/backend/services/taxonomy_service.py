@@ -133,12 +133,20 @@ def process_excel_generation(run_id: str, payload, run_record):
     
     matrix_path = os.path.join(parent_dir, "data", f"taxonomy_matrix_{run_id}.xlsx")
     
+    # Clean up input_ids in case they were pasted with spaces instead of commas
+    cleaned_input_ids = []
+    if run_record.input_ids:
+        for raw_id in run_record.input_ids:
+            cleaned_input_ids.extend([part.strip() for part in raw_id.replace(',', ' ').split() if part.strip()])
+    else:
+        cleaned_input_ids = None
+
     if is_pubmed:
         from taxonomy_builder.utils.pubmed_excel_matrix_generator import generate_pubmed_matrix_excel
-        generate_pubmed_matrix_excel(source_data, flat_nodes, enriched_tree, matrix_path, run_record.input_ids)
+        generate_pubmed_matrix_excel(source_data, flat_nodes, enriched_tree, matrix_path, cleaned_input_ids)
     else:
         from taxonomy_builder.utils.excel_matrix_generator import generate_dynamic_matrix_excel
-        generate_dynamic_matrix_excel(source_data, flat_nodes, enriched_tree, matrix_path, run_record.input_ids)
+        generate_dynamic_matrix_excel(source_data, flat_nodes, enriched_tree, matrix_path, cleaned_input_ids)
         
     if not os.path.exists(matrix_path):
         raise HTTPException(status_code=404, detail="Excel file generation failed.")
