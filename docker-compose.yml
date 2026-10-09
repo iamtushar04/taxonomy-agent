@@ -19,7 +19,7 @@ services:
       context: .
       dockerfile: web_app/backend/Dockerfile
     ports:
-      - "8518:8000"
+      - "8651:8000"
     environment:
       - IN_DOCKER=1
       # Database URL and API keys will be pulled directly from your .env file
@@ -28,13 +28,15 @@ services:
       - ./web_app/backend/.env
     volumes:
       - ./data:/app/data
+      - ai_cache:/root/.cache
+      - ai_cache:/root/.local/share
 
   frontend:
     build:
       context: ./web_app/ui
       dockerfile: Dockerfile
     ports:
-      - "8519:80"
+      - "8652:80"
     depends_on:
       - backend
     volumes:
@@ -42,3 +44,4 @@ services:
 
 volumes:
   postgres_data:
+  ai_cache:

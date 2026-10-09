@@ -27,9 +27,10 @@ _model = None
 def get_embedding_model():
     global _model
     if _model is None:
-        print("Loading high-accuracy open-source embedding model (all-mpnet-base-v2)...")
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer('all-mpnet-base-v2')
+        print("Loading high-accuracy CPU-optimized embedding model (fastembed BAAI/bge-small-en-v1.5)...")
+        # pyrefly: ignore [missing-import]
+        from fastembed import TextEmbedding
+        _model = TextEmbedding("BAAI/bge-small-en-v1.5")
     return _model
 
 
@@ -86,7 +87,7 @@ def deduplicate_concepts(state: TaxonomyGenerationState) -> dict:
         return {"canonical_concepts": []}
 
     model = get_embedding_model()
-    from sentence_transformers import util
+    from taxonomy_builder.utils.embedding_utils import community_detection
 
     # ── Step 1: Get unique names ──────────────────────────────────────────────
     unique_names = list(set([c.name.lower().strip() for c in all_concepts]))
@@ -104,11 +105,11 @@ def deduplicate_concepts(state: TaxonomyGenerationState) -> dict:
 
     # ── Step 3: Compute embeddings locally ───────────────────────────────────
     print(f"Computing local embeddings for {len(unique_names)} unique concepts...")
-    embeddings_raw = model.encode(unique_names, convert_to_tensor=True)
+    embeddings_raw = list(model.embed(unique_names))
 
     # ── Step 4: Community detection at RAISED threshold (0.85 → 0.88) ────────
     THRESHOLD = 0.88   # stricter — fewer near-duplicates slip through
-    communities = util.community_detection(embeddings_raw, min_community_size=1, threshold=THRESHOLD)
+    communities = community_detection(embeddings_raw, min_community_size=1, threshold=THRESHOLD)
 
     clusters = []
     for community in communities:

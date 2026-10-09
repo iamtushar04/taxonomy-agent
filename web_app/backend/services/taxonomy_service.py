@@ -13,15 +13,14 @@ if parent_dir not in sys.path:
 import models
 # pyrefly: ignore [missing-import]
 from database import SessionLocal
+# pyrefly: ignore [missing-import]
+from services import db_service
 from taxonomy_builder.utils.tracer import init_trace
 
 def run_taxonomy_pipeline(run_id: str, patent_ids: List[str]):
     try:
         db = SessionLocal()
-        run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
-        if run_record:
-            run_record.status = "running"
-            db.commit()
+        db_service.update_run_status_running(db, run_id)
             
         # VERY IMPORTANT FOR 1,000 PATENTS: Close the DB connection BEFORE the 5 hour run!
         # Otherwise PostgreSQL will kill the idle connection and the save will fail!
@@ -62,19 +61,13 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str]):
         
         # Open a completely fresh connection to save the results
         db = SessionLocal()
-        run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
-        if run_record:
-            run_record.status = "completed"
-            run_record.final_taxonomy = final_state.get("final_taxonomy", [])
-            run_record.source_data = final_state.get("pubmed_data", final_state.get("patents_data", {}))
-            run_record.is_pubmed = is_pubmed
-            db.commit()
+        
+        final_taxonomy = final_state.get("final_taxonomy", [])
+        source_data = final_state.get("pubmed_data", final_state.get("patents_data", {}))
+        
+        db_service.update_run_status_completed(db, run_id, final_taxonomy, source_data, is_pubmed)
     except Exception as e:
-        run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
-        if run_record:
-            run_record.status = "failed"
-            run_record.error_message = str(e)
-            db.commit()
+        db_service.update_run_status_failed(db, run_id, str(e))
     finally:
         db.close()
 

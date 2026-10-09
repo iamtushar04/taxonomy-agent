@@ -39,7 +39,7 @@ def fetch_patents(state: TaxonomyGenerationState) -> dict:
                 full_text = f"Title: {title}\n\nAbstract: {abstract}\n\nClaims: {claims}\n\nDescription: {desc}"
                 
                 assignees = data.get("assignee") or data.get("assignees", [])
-                assignee_str = assignees[0] if isinstance(assignees, list) and assignees else str(assignees)
+                assignee_str = ", ".join(str(a) for a in assignees) if isinstance(assignees, list) and assignees else str(assignees)
                 if not assignee_str or assignee_str.lower() == "none":
                     assignee_str = "N/A"
                     

@@ -14,6 +14,8 @@ from database import get_db
 from schemas import PatentRequest, GraphPayload
 # pyrefly: ignore [missing-import]
 from services.taxonomy_service import run_taxonomy_pipeline, process_excel_generation
+# pyrefly: ignore [missing-import]
+from services import db_service
 
 router = APIRouter(tags=["Taxonomy API"])
 
@@ -21,18 +23,21 @@ router = APIRouter(tags=["Taxonomy API"])
 async def build_taxonomy(request: PatentRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if not request.patent_ids:
         raise HTTPException(status_code=400, detail="Must provide at least one patent ID.")
-    run_id = str(uuid.uuid4())[:8]
+    # Ensure the 8-character ID is perfectly unique in the database
+    while True:
+        run_id = str(uuid.uuid4())[:8]
+        if db_service.is_run_id_unique(db, run_id):
+            break
     
-    new_run = models.Run(id=run_id, status="pending", input_ids=request.patent_ids)
-    db.add(new_run)
-    db.commit()
+    db_service.create_new_run(db, run_id, request.patent_ids)
     
     background_tasks.add_task(run_taxonomy_pipeline, run_id, request.patent_ids)
     return {"run_id": run_id, "message": "Started"}
 
 @router.get("/api/status/{run_id}")
 async def get_status(run_id: str, db: Session = Depends(get_db)):
-    run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
+    # Optimized: Only fetch exactly the columns we need to save bandwidth
+    run_record = db_service.get_run_status(db, run_id)
     if not run_record:
         raise HTTPException(status_code=404, detail="Not found.")
         
@@ -43,7 +48,8 @@ async def get_status(run_id: str, db: Session = Depends(get_db)):
 
 @router.get("/api/taxonomy/{run_id}")
 async def get_taxonomy(run_id: str, db: Session = Depends(get_db)):
-    run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
+    # Optimized: Only fetch exactly what we need to avoid pulling massive unused data
+    run_record = db_service.get_run_taxonomy(db, run_id)
     if not run_record:
         raise HTTPException(status_code=404, detail="Not found.")
         
@@ -53,7 +59,8 @@ async def get_taxonomy(run_id: str, db: Session = Depends(get_db)):
 
 @router.post("/api/download-excel/{run_id}")
 async def download_excel(run_id: str, payload: GraphPayload, db: Session = Depends(get_db)):
-    run_record = db.query(models.Run).filter(models.Run.id == run_id).first()
+    # Optimized: Only fetch exactly what is needed (avoids pulling the massive final_taxonomy column)
+    run_record = db_service.get_run_for_excel(db, run_id)
     if not run_record:
         raise HTTPException(status_code=404, detail="Run ID not found.")
         
