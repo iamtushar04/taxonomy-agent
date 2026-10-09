@@ -24,3 +24,6 @@ class GraphNode(BaseModel):
 class GraphPayload(BaseModel):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
+
+class RenameRunRequest(BaseModel):
+    name: str

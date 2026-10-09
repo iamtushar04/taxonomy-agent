@@ -1,4 +1,11 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
+import Login from './pages/Login';
+import DashboardSidebar from './components/DashboardSidebar';
+import axiosClient from './api/axiosClient';
+
 import {
   ReactFlow,
   addEdge,
@@ -15,9 +22,6 @@ import {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
-import axios from 'axios';
-
-const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || import.meta.env.VITE_API_URL;
 
 // --- DAGRE LAYOUT ---
 const getLayoutedElements = (nodes, edges) => {
@@ -110,7 +114,7 @@ const MindmapNode = ({ id, data }) => {
       return e;
     });
     
-    // SYNCHRONOUS LAYOUT (Fixes overlapping nodes bug!)
+    // SYNCHRONOUS LAYOUT
     applyLayoutAndState(newNodes, newEdges);
   };
 
@@ -219,11 +223,13 @@ const MindmapNode = ({ id, data }) => {
   );
 };
 
-// --- MAIN APP ---
-function TaxonomyEditor() {
-  const [patentInput, setPatentInput] = useState('US20170349734A1, US11691998B2');
+// --- EDITOR ---
+function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSidebar, setShowSidebar }) {
+  const { logout, userName, userId } = useAuth();
+  const [patentInput, setPatentInput] = useState('');
   const [status, setStatus] = useState('idle');
-  const [currentRunId, setCurrentRunId] = useState(null);
+  const [showHelp, setShowHelp] = useState(true);
+  const [currentRunName, setCurrentRunName] = useState('');
   
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -255,13 +261,33 @@ function TaxonomyEditor() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setNodes, setEdges]);
 
+  // Handle switching runs from the sidebar
+  useEffect(() => {
+    if (currentRunId && status !== 'running') {
+      fetchGraph(currentRunId);
+    } else if (!currentRunId) {
+      // Clear the canvas when creating a new session
+      setNodes([]);
+      setEdges([]);
+      setStatus('idle');
+      history.current = [];
+      historyPointer.current = -1;
+    }
+  }, [currentRunId]);
+
   const nodeTypes = useMemo(() => ({ mindmap: MindmapNode }), []);
 
   const handleRunPipeline = async () => {
     try {
+      if (currentRunId) {
+        setCurrentRunId(null);
+        setNodes([]);
+        setEdges([]);
+      }
       setStatus('running');
       const patentList = patentInput.split(',').map((id) => id.trim());
-      const res = await axios.post(`${API_BASE_URL}/api/build-taxonomy`, { patent_ids: patentList });
+      const res = await axiosClient.post(`/api/build-taxonomy`, { patent_ids: patentList });
+      if (onRunComplete) onRunComplete(); // Trigger immediate refresh to show pending status in sidebar
       pollStatus(res.data.run_id);
     } catch (error) {
       alert("Error starting pipeline.");
@@ -272,15 +298,17 @@ function TaxonomyEditor() {
   const pollStatus = async (id) => {
     const interval = setInterval(async () => {
       try {
-        const res = await axios.get(`${API_BASE_URL}/api/status/${id}`);
+        const res = await axiosClient.get(`/api/status/${id}`);
         if (res.data.status === 'completed') {
           clearInterval(interval);
           setStatus('completed');
           setCurrentRunId(id);
           fetchGraph(id);
+          if (onRunComplete) onRunComplete(); // Trigger refresh to show completed status
         } else if (res.data.status === 'failed') {
           clearInterval(interval);
           setStatus('idle');
+          if (onRunComplete) onRunComplete();
           alert("Pipeline failed: " + res.data.error);
         }
       } catch (e) {
@@ -294,51 +322,59 @@ function TaxonomyEditor() {
   };
 
   const fetchGraph = async (id) => {
-    const res = await axios.get(`${API_BASE_URL}/api/taxonomy/${id}`);
-    const taxonomyArray = res.data.taxonomy;
+    try {
+      const res = await axiosClient.get(`/api/taxonomy/${id}`);
+      if (res.data.name) {
+        setCurrentRunName(res.data.name);
+      }
+      const taxonomyArray = res.data.taxonomy;
 
-    const initialNodes = [];
-    const initialEdges = [];
+      const initialNodes = [];
+      const initialEdges = [];
 
-    taxonomyArray.forEach((item) => {
-      const isHidden = item.level > 1; 
-      const isExpanded = item.level <= 0;
+      taxonomyArray.forEach((item) => {
+        const isHidden = item.level > 1; 
+        const isExpanded = item.level <= 0;
 
-      initialNodes.push({
-        id: item.node_id,
-        type: 'mindmap',
-        data: { 
-          label: item.name, 
-          isExpanded, 
-          saveHistory, 
-          patent_contexts: item.patent_contexts,
-          contexts_by_patent: item.contexts_by_patent,
-          contexts_by_pmid: item.contexts_by_pmid,
-          supporting_patent_ids: item.supporting_patent_ids,
-          supporting_pmids: item.supporting_pmids
-        },
-        position: { x: 0, y: 0 },
-        hidden: isHidden
-      });
-
-      if (item.parent_node_id) {
-        initialEdges.push({
-          id: `e-${item.parent_node_id}-${item.node_id}`,
-          source: item.parent_node_id,
-          target: item.node_id,
-          type: 'bezier',
-          style: { stroke: '#ccc', strokeWidth: 1.5 },
+        initialNodes.push({
+          id: item.node_id,
+          type: 'mindmap',
+          data: { 
+            label: item.name, 
+            isExpanded, 
+            saveHistory, 
+            patent_contexts: item.patent_contexts,
+            contexts_by_patent: item.contexts_by_patent,
+            contexts_by_pmid: item.contexts_by_pmid,
+            supporting_patent_ids: item.supporting_patent_ids,
+            supporting_pmids: item.supporting_pmids
+          },
+          position: { x: 0, y: 0 },
           hidden: isHidden
         });
-      }
-    });
 
-    const layouted = getLayoutedElements(initialNodes, initialEdges);
-    setNodes(layouted.nodes);
-    setEdges(layouted.edges);
-    
-    history.current = [{ nodes: layouted.nodes, edges: layouted.edges }];
-    historyPointer.current = 0;
+        if (item.parent_node_id) {
+          initialEdges.push({
+            id: `e-${item.parent_node_id}-${item.node_id}`,
+            source: item.parent_node_id,
+            target: item.node_id,
+            type: 'bezier',
+            style: { stroke: '#ccc', strokeWidth: 1.5 },
+            hidden: isHidden
+          });
+        }
+      });
+
+      const layouted = getLayoutedElements(initialNodes, initialEdges);
+      setNodes(layouted.nodes);
+      setEdges(layouted.edges);
+      
+      history.current = [{ nodes: layouted.nodes, edges: layouted.edges }];
+      historyPointer.current = 0;
+    } catch (error) {
+      console.error("Failed to load graph", error);
+      alert("Failed to load the taxonomy graph. You might not have permission.");
+    }
   };
 
   const onConnect = useCallback(
@@ -392,18 +428,30 @@ function TaxonomyEditor() {
 
   const handleDownload = async () => {
     try {
-      setStatus('running'); // visual feedback
-      const response = await axios.post(`${API_BASE_URL}/api/download-excel/${currentRunId}`, {
+      setStatus('running'); 
+      const response = await axiosClient.post(`/api/download-excel/${currentRunId}`, {
         nodes: getNodes(),
         edges: getEdges()
       }, {
         responseType: 'blob'
       });
       
+      let filename = `Taxonomy_Matrix_${currentRunId}.xlsx`;
+      const disposition = response.headers['content-disposition'];
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+          const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+          const matches = filenameRegex.exec(disposition);
+          if (matches != null && matches[1]) { 
+              filename = matches[1].replace(/['"]/g, '');
+          }
+      } else if (currentRunName) {
+         filename = `${currentRunName.replace(/ /g, '_')}.xlsx`;
+      }
+      
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `Taxonomy_Matrix_${currentRunId}.xlsx`);
+      link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -416,25 +464,51 @@ function TaxonomyEditor() {
   };
 
   return (
-    <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: 15, background: '#fff', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', zIndex: 10 }}>
-        <h3 style={{ margin: 0, marginRight: 20 }}>Taxonomy Graph</h3>
-        <input 
-          type="text" value={patentInput} onChange={(e) => setPatentInput(e.target.value)} 
-          style={{ width: '300px', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
-        />
-        <button onClick={handleRunPipeline} disabled={status === 'running'} style={{ marginLeft: 10, padding: '8px 15px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-          {status === 'running' ? 'Running Pipeline...' : 'Generate Graph'}
+        <button 
+          onClick={() => setShowSidebar(!showSidebar)}
+          title="Toggle Sidebar"
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '20px', marginRight: '15px' }}
+        >
+          {showSidebar ? '◀' : '☰'}
         </button>
-        {currentRunId && (
-          <button onClick={handleDownload} 
-                  style={{ marginLeft: 10, padding: '8px 15px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-            Download Excel Report 📥
+        <h3 style={{ margin: 0, marginRight: 20 }}>
+          {currentRunId ? 'Viewing Taxonomy' : 'Create New Taxonomy'}
+        </h3>
+        
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '15px' }}>
+          {currentRunId && (
+            <button onClick={handleDownload} 
+                    style={{ padding: '8px 15px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+              Download Excel Report 📥
+            </button>
+          )}
+          <span style={{ fontSize: '13px', color: '#555', fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
+            <span style={{ marginRight: '6px', fontSize: '16px' }}>👤</span>
+            {userName || `User ${userId}`}
+          </span>
+          <button 
+            onClick={logout} 
+            title="Logout"
+            style={{ padding: '8px 10px', background: '#b91c1c', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
           </button>
-        )}
+        </div>
       </div>
 
-      <div style={{ flex: 1, background: '#fdfdfd' }}>
+      <div style={{ flex: 1, background: '#fdfdfd', position: 'relative' }}>
+        {!currentRunId && status === 'idle' && (
+           <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', color: '#888', zIndex: 5 }}>
+              <div style={{ fontSize: '48px', marginBottom: '10px' }}>📊</div>
+              <h2>What would you like to build?</h2>
+              <p>Enter your Patent or PubMed IDs in the chat bar below.</p>
+           </div>
+        )}
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -447,22 +521,95 @@ function TaxonomyEditor() {
           minZoom={0.1}
         >
           <Panel position="bottom-center">
-             <div style={{ background: 'white', padding: '10px', borderRadius: 8, border: '1px solid #ddd', fontSize: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                <b>Editable UI:</b> Hover over nodes for <b>[+]</b> and <b>[-]</b> buttons. Click nodes to collapse/expand. Press <b>Ctrl+Z</b> to Undo.
-             </div>
+            {showHelp ? (
+              <div style={{ position: 'relative', background: 'white', padding: '12px 30px 12px 15px', borderRadius: 8, border: '1px solid #ddd', fontSize: '13px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                  <button onClick={() => setShowHelp(false)} style={{ position: 'absolute', right: '5px', top: '5px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#888', fontWeight: 'bold' }}>✖</button>
+                  <b>Editable UI:</b> Hover over nodes for <b>[+]</b> and <b>[-]</b> buttons. Click nodes to collapse/expand. Press <b>Ctrl+Z</b> to Undo.<br/>
+                  <span style={{color: '#555', marginTop: '4px', display: 'inline-block'}}>
+                    <b>Assign node:</b> Drag a node's right handle to another node's left handle.<br/>
+                    <b>Delete edge:</b> Click on a connection line and press Backspace.
+                  </span>
+              </div>
+            ) : (
+              <button onClick={() => setShowHelp(true)} style={{ background: 'white', padding: '5px 10px', borderRadius: '8px', border: '1px solid #ddd', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                 ℹ️ Help
+              </button>
+            )}
           </Panel>
           <Controls />
           <Background color="#eee" gap={20} size={1} />
         </ReactFlow>
       </div>
+
+      {/* ChatGPT Style Bottom Input Bar */}
+      <div style={{ padding: '20px', background: 'white', borderTop: '1px solid #eaeaea', display: 'flex', justifyContent: 'center', zIndex: 10 }}>
+        <div style={{ display: 'flex', width: '800px', maxWidth: '100%', background: '#f4f4f4', borderRadius: '24px', padding: '8px 12px', alignItems: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.05)' }}>
+            <button 
+              title="Upload Excel (Coming Soon)"
+              style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#555', padding: '0 10px', display: 'flex', alignItems: 'center' }}
+              onClick={() => alert("Excel upload functionality coming soon!")}
+            >
+              ➕
+            </button>
+            <input 
+              type="text" 
+              value={patentInput} 
+              onChange={(e) => setPatentInput(e.target.value)} 
+              placeholder="Message Taxonomy AI or enter Patent / PubMed IDs..."
+              style={{ flex: 1, background: 'transparent', border: 'none', padding: '10px', fontSize: '15px', outline: 'none' }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleRunPipeline(); }}
+            />
+            <button 
+              onClick={handleRunPipeline} 
+              disabled={status === 'running'} 
+              style={{ background: status === 'running' ? '#ccc' : '#000', color: 'white', border: 'none', borderRadius: '50%', width: '36px', height: '36px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}
+            >
+              {status === 'running' ? '⏳' : '↑'}
+            </button>
+        </div>
+      </div>
     </div>
   );
 }
 
+// --- MAIN LAYOUT ---
+function AppLayout() {
+  const [currentRunId, setCurrentRunId] = useState(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [showSidebar, setShowSidebar] = useState(true);
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+      {showSidebar && <DashboardSidebar currentRunId={currentRunId} onSelectRun={setCurrentRunId} refreshTrigger={refreshTrigger} />}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <TaxonomyEditor 
+          currentRunId={currentRunId} 
+          setCurrentRunId={setCurrentRunId} 
+          onRunComplete={() => setRefreshTrigger(prev => prev + 1)} 
+          showSidebar={showSidebar}
+          setShowSidebar={setShowSidebar}
+        />
+      </div>
+    </div>
+  );
+}
+
+// --- APP ---
 export default function App() {
   return (
-    <ReactFlowProvider>
-      <TaxonomyEditor />
-    </ReactFlowProvider>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route element={<ProtectedRoute />}>
+            <Route path="/" element={
+              <ReactFlowProvider>
+                <AppLayout />
+              </ReactFlowProvider>
+            } />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }

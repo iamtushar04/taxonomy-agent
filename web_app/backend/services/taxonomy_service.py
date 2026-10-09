@@ -65,7 +65,28 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str]):
         final_taxonomy = final_state.get("final_taxonomy", [])
         source_data = final_state.get("pubmed_data", final_state.get("patents_data", {}))
         
-        db_service.update_run_status_completed(db, run_id, final_taxonomy, source_data, is_pubmed)
+        # Generate meaningful name
+        meaningful_name = None
+        if final_taxonomy:
+            roots = [n for n in final_taxonomy if not n.get("parent_node_id")]
+            if len(roots) > 1:
+                meaningful_name = " & ".join([r.get("name", "") for r in roots[:2]]) + " Taxonomy"
+            elif len(roots) == 1:
+                root = roots[0]
+                root_name = root.get("name", "")
+                children = [n for n in final_taxonomy if n.get("parent_node_id") == root.get("node_id")]
+                generic_roots = {"technology", "technologies", "innovation", "innovations", "patent", "patents", "invention", "inventions", "concept", "concepts"}
+                
+                if not children:
+                    meaningful_name = f"{root_name} Taxonomy"
+                else:
+                    child_names = [c.get("name", "") for c in children[:2]]
+                    if root_name.lower() in generic_roots:
+                        meaningful_name = " & ".join(child_names) + " Taxonomy"
+                    else:
+                        meaningful_name = " & ".join(child_names) + f" ({root_name})"
+        
+        db_service.update_run_status_completed(db, run_id, final_taxonomy, source_data, is_pubmed, meaningful_name)
     except Exception as e:
         db_service.update_run_status_failed(db, run_id, str(e))
     finally:

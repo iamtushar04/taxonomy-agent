@@ -1,5 +1,5 @@
 # pyrefly: ignore [missing-import]
-from sqlalchemy import Column, String, Boolean, DateTime
+from sqlalchemy import Column, String, Boolean, DateTime, Integer
 # pyrefly: ignore [missing-import]
 from sqlalchemy.dialects.postgresql import JSONB
 # pyrefly: ignore [missing-import]
@@ -19,3 +19,5 @@ class Run(Base):
     is_pubmed = Column(Boolean, default=False)
     final_taxonomy = Column(JSONB, nullable=True)
     source_data = Column(JSONB, nullable=True)
+    user_id = Column(Integer, index=True)
+    name = Column(String, nullable=True)
