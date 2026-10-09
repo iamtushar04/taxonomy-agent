@@ -17,7 +17,7 @@ import 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8518';
+const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || import.meta.env.VITE_API_URL;
 
 // --- DAGRE LAYOUT ---
 const getLayoutedElements = (nodes, edges) => {
@@ -313,7 +313,9 @@ function TaxonomyEditor() {
           saveHistory, 
           patent_contexts: item.patent_contexts,
           contexts_by_patent: item.contexts_by_patent,
-          contexts_by_pmid: item.contexts_by_pmid
+          contexts_by_pmid: item.contexts_by_pmid,
+          supporting_patent_ids: item.supporting_patent_ids,
+          supporting_pmids: item.supporting_pmids
         },
         position: { x: 0, y: 0 },
         hidden: isHidden

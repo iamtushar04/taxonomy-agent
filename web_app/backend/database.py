@@ -20,7 +20,7 @@ def create_db_if_not_exists(url):
     parsed = urlparse(url)
     db_name = parsed.path.lstrip('/')
     host = parsed.hostname
-    if host == 'postgres' and not os.environ.get("IN_DOCKER"):
+    if host in ['postgres', 'host.docker.internal'] and not os.environ.get("IN_DOCKER"):
         host = 'localhost'
         
     for attempt in range(5):
@@ -50,8 +50,9 @@ def create_db_if_not_exists(url):
 create_db_if_not_exists(DATABASE_URL)
 
 # If we changed host to localhost for DB creation, let's also update the engine URL for SQLAlchemy
-if not os.environ.get("IN_DOCKER") and "@postgres:5432" in DATABASE_URL:
+if not os.environ.get("IN_DOCKER"):
     DATABASE_URL = DATABASE_URL.replace("@postgres:5432", "@localhost:5432")
+    DATABASE_URL = DATABASE_URL.replace("@host.docker.internal:5432", "@localhost:5432")
 
 # SQLAlchemy needs the dialect specified explicitly in modern versions if using psycopg2
 engine_url = DATABASE_URL

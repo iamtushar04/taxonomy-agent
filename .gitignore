@@ -26,3 +26,5 @@ tests/
 node_modules/
 dist/
 .env.local
+.env.development
+.env.production

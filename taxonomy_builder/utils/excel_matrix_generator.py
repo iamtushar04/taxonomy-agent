@@ -7,10 +7,10 @@ def get_max_depth(tree_dict, current=0):
         return current
     return max(get_max_depth(v, current + 1) for v in tree_dict.values() if isinstance(v, dict))
 
-def generate_dynamic_matrix_excel(patents_data: dict, final_taxonomy: List[Dict], draft_tree: dict, output_path: str):
+def generate_dynamic_matrix_excel(patents_data: dict, final_taxonomy: List[Dict], draft_tree: dict, output_path: str, input_ids: List[str] = None):
     """
     Generates a dynamically structured Matrix Excel file where:
-    - Rows are Patents
+    - Rows are Patents (in exact user-provided order if input_ids is provided)
     - Columns use merged, multi-level hierarchical headers from draft_tree (e.g. Technology -> Heating -> Heater Design)
     - Cells contain the exact quotes extracted from the patent for the specific leaf node.
     """
@@ -103,7 +103,13 @@ def generate_dynamic_matrix_excel(patents_data: dict, final_taxonomy: List[Dict]
 
     # Fill Rows with Patent Data
     row_idx = max_depth + 1
-    for patent_id, p_data in patents_data.items():
+    
+    order = input_ids if input_ids else patents_data.keys()
+    
+    for patent_id in order:
+        if patent_id not in patents_data:
+            continue
+        p_data = patents_data[patent_id]
         # Fixed Data
         ws.cell(row=row_idx, column=1, value=row_idx - max_depth).alignment = cell_align
         ws.cell(row=row_idx, column=2, value=patent_id).alignment = cell_align

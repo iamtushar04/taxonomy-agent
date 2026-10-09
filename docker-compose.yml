@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  db:
+  postgres:
     image: postgres:15-alpine
     environment:
       POSTGRES_USER: postgres
@@ -9,25 +9,25 @@ services:
       POSTGRES_DB: taxonomy_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # We do NOT expose ports to the host to prevent port conflicts!
+    # The backend container can still reach it internally on 5432.
 
   backend:
+    depends_on:
+      - postgres
     build:
       context: .
       dockerfile: web_app/backend/Dockerfile
     ports:
       - "8518:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:wissen67@db:5432/taxonomy_db
       - IN_DOCKER=1
-      # Assuming .env handles API keys, but passing explicitly is safer
+      # Database URL and API keys will be pulled directly from your .env file
     env_file:
       - .env
+      - ./web_app/backend/.env
     volumes:
       - ./data:/app/data
-    depends_on:
-      - db
 
   frontend:
     build:
@@ -37,6 +37,8 @@ services:
       - "8519:80"
     depends_on:
       - backend
+    volumes:
+      - ./web_app/ui/public/config.js:/usr/share/nginx/html/config.js
 
 volumes:
   postgres_data:
