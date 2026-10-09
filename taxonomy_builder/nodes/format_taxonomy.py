@@ -182,10 +182,12 @@ def format_taxonomy(state: TaxonomyGenerationState) -> dict:
     except Exception as e:
         print(f"Failed to generate Excel template: {e}")
 
-    # 2.5 Write the Dynamic Matrix Excel (Rows = Patents, Cols = Taxonomy Nodes)
+    # 2.5 Write the Dynamic Matrix Excel (Rows = Patents/PubMed, Cols = Taxonomy Nodes)
     matrix_path = f"c:\\Users\\Vipul\\Desktop\\taxonomies_agent\\data\\taxonomy_matrix_{run_id}.xlsx"
     try:
-        patents_data = state.get("patents_data", {})
+        # Determine if this is a PubMed run or a Patent run
+        is_pubmed = "pubmed_data" in state and bool(state.get("pubmed_data"))
+        source_data = state.get("pubmed_data", {}) if is_pubmed else state.get("patents_data", {})
 
         # Rebuild the COMPLETE tree from final_taxonomy (includes injected granular leaf nodes)
         def _rebuild_tree_from_taxonomy(taxonomy_nodes: list) -> dict:
@@ -204,8 +206,14 @@ def format_taxonomy(state: TaxonomyGenerationState) -> dict:
             return tree
 
         enriched_tree = _rebuild_tree_from_taxonomy(final_taxonomy)
-        generate_dynamic_matrix_excel(patents_data, final_taxonomy, enriched_tree, matrix_path)
-        print(f"-> Generated dynamic Matrix Excel at {matrix_path}")
+        
+        if is_pubmed:
+            from taxonomy_builder.utils.pubmed_excel_matrix_generator import generate_pubmed_matrix_excel
+            generate_pubmed_matrix_excel(source_data, final_taxonomy, enriched_tree, matrix_path)
+            print(f"-> Generated PubMed Matrix Excel at {matrix_path}")
+        else:
+            generate_dynamic_matrix_excel(source_data, final_taxonomy, enriched_tree, matrix_path)
+            print(f"-> Generated Patent Matrix Excel at {matrix_path}")
     except Exception as e:
         import traceback
         print(f"Failed to generate Matrix Excel: {e}")
