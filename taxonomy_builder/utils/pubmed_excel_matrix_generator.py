@@ -7,7 +7,7 @@ def get_max_depth(tree_dict, current=0):
         return current
     return max(get_max_depth(v, current + 1) for v in tree_dict.values() if isinstance(v, dict))
 
-def generate_pubmed_matrix_excel(pubmed_data: dict, final_taxonomy: List[Dict], draft_tree: dict, output_path: str):
+def generate_pubmed_matrix_excel(pubmed_data: dict, final_taxonomy: List[Dict], draft_tree: dict, output_path: str, input_ids: List[str] = None):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "PubMed Taxonomy Matrix"
@@ -93,7 +93,13 @@ def generate_pubmed_matrix_excel(pubmed_data: dict, final_taxonomy: List[Dict], 
 
     # Fill Rows with PubMed Data
     row_idx = max_depth + 1
-    for pmid, p_data in pubmed_data.items():
+    
+    order = input_ids if input_ids else pubmed_data.keys()
+    
+    for pmid in order:
+        if pmid not in pubmed_data:
+            continue
+        p_data = pubmed_data[pmid]
         ws.cell(row=row_idx, column=1, value=row_idx - max_depth).alignment = cell_align
         ws.cell(row=row_idx, column=2, value=pmid).alignment = cell_align
         ws.cell(row=row_idx, column=3, value=p_data.get("title", "N/A")).alignment = cell_align

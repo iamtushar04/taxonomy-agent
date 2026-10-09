@@ -38,9 +38,29 @@ def fetch_patents(state: TaxonomyGenerationState) -> dict:
                 
                 full_text = f"Title: {title}\n\nAbstract: {abstract}\n\nClaims: {claims}\n\nDescription: {desc}"
                 
+                assignees = data.get("assignee") or data.get("assignees", [])
+                assignee_str = assignees[0] if isinstance(assignees, list) and assignees else str(assignees)
+                if not assignee_str or assignee_str.lower() == "none":
+                    assignee_str = "N/A"
+                    
+                summary_text = "N/A"
+                if abstract:
+                    try:
+                        from pipeline.utils.llm_client import chat_completion
+                        messages = [
+                            {"role": "system", "content": "You are a concise summarizer. Summarize the following abstract in 10 words or less."},
+                            {"role": "user", "content": str(abstract)}
+                        ]
+                        summary_text = chat_completion(messages, model="gpt-4o-mini").strip()
+                    except Exception as llm_e:
+                        print(f"Failed to summarize abstract: {llm_e}")
+                        summary_text = "N/A"
+
                 patents_data[p_id] = {
                     "title": str(title),
-                    "full_text": full_text
+                    "full_text": full_text,
+                    "assignee": assignee_str,
+                    "summary": summary_text
                 }
             except Exception as e:
                 print(f"Failed to fetch {p_id}: {e}")

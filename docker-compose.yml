@@ -1,7 +1,20 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: wissen67
+      POSTGRES_DB: taxonomy_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # We do NOT expose ports to the host to prevent port conflicts!
+    # The backend container can still reach it internally on 5432.
+
   backend:
+    depends_on:
+      - postgres
     build:
       context: .
       dockerfile: web_app/backend/Dockerfile
@@ -12,6 +25,7 @@ services:
       # Database URL and API keys will be pulled directly from your .env file
     env_file:
       - .env
+      - ./web_app/backend/.env
     volumes:
       - ./data:/app/data
 
@@ -23,3 +37,8 @@ services:
       - "8519:80"
     depends_on:
       - backend
+    volumes:
+      - ./web_app/ui/public/config.js:/usr/share/nginx/html/config.js
+
+volumes:
+  postgres_data:

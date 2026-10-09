@@ -17,7 +17,7 @@ import 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8518';
+const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || import.meta.env.VITE_API_URL;
 
 // --- DAGRE LAYOUT ---
 const getLayoutedElements = (nodes, edges) => {
