@@ -58,6 +58,15 @@ def get_run_for_excel(db: Session, run_id: str, user_id: int):
         models.Run.name
     ).filter(models.Run.id == run_id, models.Run.user_id == user_id).first()
 
+def get_run_source_data(db: Session, run_id: str, user_id: int):
+    """Fetch only source_data and is_pubmed for analytics — avoids loading final_taxonomy."""
+    return db.query(
+        models.Run.status,
+        models.Run.source_data,
+        models.Run.is_pubmed
+    ).filter(models.Run.id == run_id, models.Run.user_id == user_id).first()
+
+
 def update_run_status_running(db: Session, run_id: str):
     """Update a run's status to running."""
     db.query(models.Run).filter(models.Run.id == run_id).update({"status": "running"})

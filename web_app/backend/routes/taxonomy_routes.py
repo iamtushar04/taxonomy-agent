@@ -91,3 +91,32 @@ async def get_user_runs(db: Session = Depends(get_db), current_user_id: int = De
     """Fetch lightweight history of all runs for the current user."""
     runs = db_service.get_runs_by_user(db, current_user_id)
     return {"runs": runs}
+
+@router.get("/api/analytics/{run_id}")
+async def get_analytics(run_id: str, db: Session = Depends(get_db), current_user_id: int = Depends(get_current_user)):
+    """
+    Returns patent-level metadata (assignee, filing_date, title) for analytics charts.
+    Only works for patent runs (not PubMed). Returns 400 for PubMed sessions.
+    """
+    run_record = db_service.get_run_source_data(db, run_id, current_user_id)
+    if not run_record:
+        raise HTTPException(status_code=404, detail="Run not found.")
+    if run_record.status != "completed":
+        raise HTTPException(status_code=400, detail="Run not completed yet.")
+    if run_record.is_pubmed:
+        raise HTTPException(status_code=400, detail="Analytics not available for PubMed runs.")
+
+    source_data = run_record.source_data or {}
+
+    # Serialize only the fields needed for charts — safe even if keys are missing
+    analytics_patents = []
+    for patent_id, meta in source_data.items():
+        analytics_patents.append({
+            "patent_id": patent_id,
+            "title": meta.get("title", "N/A"),
+            "assignee": meta.get("assignee") or "Unknown",
+            "filing_date": meta.get("filing_date") or meta.get("date") or None,
+        })
+
+    return {"run_id": run_id, "patents": analytics_patents}
+

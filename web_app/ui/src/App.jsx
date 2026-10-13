@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import DashboardSidebar from './components/DashboardSidebar';
+import AnalyticsDashboard from './components/AnalyticsDashboard';
 import axiosClient from './api/axiosClient';
 
 import {
@@ -230,6 +231,9 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
   const [status, setStatus] = useState('idle');
   const [showHelp, setShowHelp] = useState(true);
   const [currentRunName, setCurrentRunName] = useState('');
+  const [activeTab, setActiveTab] = useState('graph');   // 'graph' | 'analytics'
+  const [isPubmed, setIsPubmed] = useState(false);
+  const [taxonomyData, setTaxonomyData] = useState([]);  // raw taxonomy array for analytics
   
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -270,6 +274,9 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
       setNodes([]);
       setEdges([]);
       setStatus('idle');
+      setTaxonomyData([]);
+      setIsPubmed(false);
+      setActiveTab('graph');
       history.current = [];
       historyPointer.current = -1;
     }
@@ -328,6 +335,10 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
         setCurrentRunName(res.data.name);
       }
       const taxonomyArray = res.data.taxonomy;
+      setTaxonomyData(taxonomyArray || []);
+      // Detect if all node IDs are numeric (PubMed) vs alphanumeric (patents)
+      const hasPmids = taxonomyArray?.some(n => n.supporting_pmids?.length > 0);
+      setIsPubmed(!!hasPmids);
 
       const initialNodes = [];
       const initialEdges = [];
@@ -464,24 +475,54 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
   };
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: 15, background: '#fff', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', zIndex: 10 }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ padding: '10px 15px', background: '#fff', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', zIndex: 10, gap: 12 }}>
+        {/* Sidebar toggle */}
         <button 
           onClick={() => setShowSidebar(!showSidebar)}
           title="Toggle Sidebar"
-          style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '20px', marginRight: '15px' }}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '20px', flexShrink: 0 }}
         >
           {showSidebar ? '◀' : '☰'}
         </button>
-        <h3 style={{ margin: 0, marginRight: 20 }}>
+
+        {/* Page title */}
+        <h3 style={{ margin: 0, fontSize: 15, whiteSpace: 'nowrap' }}>
           {currentRunId ? 'Viewing Taxonomy' : 'Create New Taxonomy'}
         </h3>
-        
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '15px' }}>
-          {currentRunId && (
+
+        {/* Tab switcher — only visible when a session is loaded */}
+        {currentRunId && (
+          <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 8, padding: 3, gap: 2 }}>
+            {[['graph', '🌿 Graph'], ['analytics', '📊 Analytics']].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                style={{
+                  padding: '5px 14px',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  transition: 'all 0.15s',
+                  background: activeTab === key ? '#fff' : 'transparent',
+                  color: activeTab === key ? '#1e293b' : '#64748b',
+                  boxShadow: activeTab === key ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Right side: download + user + logout */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {currentRunId && activeTab === 'graph' && (
             <button onClick={handleDownload} 
-                    style={{ padding: '8px 15px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-              Download Excel Report 📥
+                    style={{ padding: '7px 14px', background: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: 13 }}>
+              Download Excel 📥
             </button>
           )}
           <span style={{ fontSize: '13px', color: '#555', fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
@@ -501,44 +542,59 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
         </div>
       </div>
 
-      <div style={{ flex: 1, background: '#fdfdfd', position: 'relative' }}>
-        {!currentRunId && status === 'idle' && (
-           <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', color: '#888', zIndex: 5 }}>
-              <div style={{ fontSize: '48px', marginBottom: '10px' }}>📊</div>
-              <h2>What would you like to build?</h2>
-              <p>Enter your Patent or PubMed IDs in the chat bar below.</p>
-           </div>
+      <div style={{ flex: 1, background: '#fdfdfd', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+
+        {/* ── ANALYTICS TAB ─────────────────────────────────────────── */}
+        {activeTab === 'analytics' && currentRunId && (
+          <div style={{ flex: 1, background: '#0a0f1e', overflowY: 'auto', minHeight: 0, height: '100%' }}>
+            <AnalyticsDashboard
+              runId={currentRunId}
+              taxonomy={taxonomyData}
+              isPubmed={isPubmed}
+            />
+          </div>
         )}
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onEdgesDelete={onEdgesDelete}
-          fitView
-          minZoom={0.1}
-        >
-          <Panel position="bottom-center">
-            {showHelp ? (
-              <div style={{ position: 'relative', background: 'white', padding: '12px 30px 12px 15px', borderRadius: 8, border: '1px solid #ddd', fontSize: '13px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                  <button onClick={() => setShowHelp(false)} style={{ position: 'absolute', right: '5px', top: '5px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#888', fontWeight: 'bold' }}>✖</button>
-                  <b>Editable UI:</b> Hover over nodes for <b>[+]</b> and <b>[-]</b> buttons. Click nodes to collapse/expand. Press <b>Ctrl+Z</b> to Undo.<br/>
-                  <span style={{color: '#555', marginTop: '4px', display: 'inline-block'}}>
-                    <b>Assign node:</b> Drag a node's right handle to another node's left handle.<br/>
-                    <b>Delete edge:</b> Click on a connection line and press Backspace.
-                  </span>
-              </div>
-            ) : (
-              <button onClick={() => setShowHelp(true)} style={{ background: 'white', padding: '5px 10px', borderRadius: '8px', border: '1px solid #ddd', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                 ℹ️ Help
-              </button>
-            )}
-          </Panel>
-          <Controls />
-          <Background color="#eee" gap={20} size={1} />
-        </ReactFlow>
+
+        {/* ── GRAPH TAB ─────────────────────────────────────────────── */}
+        <div style={{ flex: 1, position: 'relative', display: activeTab === 'graph' ? 'flex' : 'none', flexDirection: 'column' }}>
+          {!currentRunId && status === 'idle' && (
+             <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', color: '#888', zIndex: 5 }}>
+                <div style={{ fontSize: '48px', marginBottom: '10px' }}>📊</div>
+                <h2>What would you like to build?</h2>
+                <p>Enter your Patent or PubMed IDs in the chat bar below.</p>
+             </div>
+          )}
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onEdgesDelete={onEdgesDelete}
+            fitView
+            minZoom={0.1}
+          >
+            <Panel position="bottom-center">
+              {showHelp ? (
+                <div style={{ position: 'relative', background: 'white', padding: '12px 30px 12px 15px', borderRadius: 8, border: '1px solid #ddd', fontSize: '13px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                    <button onClick={() => setShowHelp(false)} style={{ position: 'absolute', right: '5px', top: '5px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#888', fontWeight: 'bold' }}>✖</button>
+                    <b>Editable UI:</b> Hover over nodes for <b>[+]</b> and <b>[-]</b> buttons. Click nodes to collapse/expand. Press <b>Ctrl+Z</b> to Undo.<br/>
+                    <span style={{color: '#555', marginTop: '4px', display: 'inline-block'}}>
+                      <b>Assign node:</b> Drag a node's right handle to another node's left handle.<br/>
+                      <b>Delete edge:</b> Click on a connection line and press Backspace.
+                    </span>
+                </div>
+              ) : (
+                <button onClick={() => setShowHelp(true)} style={{ background: 'white', padding: '5px 10px', borderRadius: '8px', border: '1px solid #ddd', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                   ℹ️ Help
+                </button>
+              )}
+            </Panel>
+            <Controls />
+            <Background color="#eee" gap={20} size={1} />
+          </ReactFlow>
+        </div>
       </div>
 
       {/* ChatGPT Style Bottom Input Bar */}

@@ -56,10 +56,19 @@ def fetch_patents(state: TaxonomyGenerationState) -> dict:
                         print(f"Failed to summarize abstract: {llm_e}")
                         summary_text = "N/A"
 
+                filing_date = (
+                    data.get("application_date")
+                    or data.get("filing_date")
+                    or data.get("priority_date")
+                    or data.get("publication_date")
+                    or ""
+                )
+
                 patents_data[p_id] = {
                     "title": str(title),
                     "full_text": full_text,
                     "assignee": assignee_str,
+                    "filing_date": str(filing_date) if filing_date else None,
                     "summary": summary_text
                 }
             except Exception as e:
