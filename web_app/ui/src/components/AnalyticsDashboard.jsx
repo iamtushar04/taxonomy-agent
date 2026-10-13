@@ -13,6 +13,8 @@
 import React, { useEffect, useState } from 'react';
 import axiosClient from '../api/axiosClient';
 import AssigneeFilingChart from './AssigneeFilingChart';
+import TechnologyTrendChart from './TechnologyTrendChart';
+import AssigneeTechHeatmap from './AssigneeTechHeatmap';
 import PatentTaxonomyTable from './PatentTaxonomyTable';
 import AssigneeTaxonomyMatrix from './AssigneeTaxonomyMatrix';
 
@@ -37,12 +39,14 @@ export default function AnalyticsDashboard({ runId, taxonomy, isPubmed }) {
   const [patents, setPatents] = useState(null); // null = loading, [] = empty, [...] = loaded
   const [error, setError] = useState(null);
   const [selectedAssignee, setSelectedAssignee] = useState(null);
+  const [selectedTechNode, setSelectedTechNode] = useState(null);
 
   useEffect(() => {
     if (!runId || isPubmed) return;
     setPatents(null);
     setError(null);
     setSelectedAssignee(null);
+    setSelectedTechNode(null);
 
     axiosClient.get(`/api/analytics/${runId}`)
       .then(res => setPatents(res.data.patents || []))
@@ -121,18 +125,96 @@ export default function AnalyticsDashboard({ runId, taxonomy, isPubmed }) {
         ))}
       </div>
 
-      {/* ── Assignee vs Filing Date Chart ─────────────────────────────── */}
+      {/* Active Filter Pill Bar (if any selection is active) */}
+      {(selectedAssignee || selectedTechNode) && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          background: '#1e1b4b',
+          border: '1px solid #4338ca',
+          borderRadius: 8,
+          padding: '10px 16px',
+          marginBottom: 20,
+        }}>
+          <span style={{ fontSize: 13, color: '#c7d2fe', fontWeight: 600 }}>Active Filters:</span>
+          {selectedAssignee && (
+            <span style={{ background: '#6366f1', color: '#fff', padding: '3px 10px', borderRadius: 99, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              🏢 {selectedAssignee}
+              <button
+                onClick={() => setSelectedAssignee(null)}
+                style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 0 }}
+              >✕</button>
+            </span>
+          )}
+          {selectedTechNode && (
+            <span style={{ background: '#0284c7', color: '#fff', padding: '3px 10px', borderRadius: 99, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              🔬 {selectedTechNode}
+              <button
+                onClick={() => setSelectedTechNode(null)}
+                style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 0 }}
+              >✕</button>
+            </span>
+          )}
+          <button
+            onClick={() => { setSelectedAssignee(null); setSelectedTechNode(null); }}
+            style={{
+              marginLeft: 'auto',
+              background: '#312e81',
+              color: '#e0e7ff',
+              border: 'none',
+              borderRadius: 6,
+              padding: '4px 10px',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            Clear All ✕
+          </button>
+        </div>
+      )}
+
+      {/* ── 1. Assignee Filing Activity by Year (Filing Velocity) ─────── */}
       <div style={{ ...PANEL_STYLE, marginBottom: 20 }}>
         <div style={SECTION_TITLE}>
-          <span>📊</span> Assignee Filing Activity by Year
+          <span>📊</span> Assignee Filing Activity by Year (Filing Velocity)
         </div>
         <AssigneeFilingChart patents={patents} />
       </div>
 
-      {/* ── Assignee → Taxonomy Matrix / Footprint ────────────────────── */}
+      {/* ── 2. Technology Growth by Year (Lifecycle Trends) ───────────── */}
       <div style={{ ...PANEL_STYLE, marginBottom: 20 }}>
         <div style={SECTION_TITLE}>
-          <span>🏢</span> Assignee Taxonomy Footprint
+          <span>📈</span> Technology Growth by Year (R&D Evolution)
+        </div>
+        <TechnologyTrendChart
+          patents={patents}
+          taxonomy={taxonomy}
+          onSelectTechNode={setSelectedTechNode}
+        />
+      </div>
+
+      {/* ── 3. Competitive Battlefield (Assignee × Technology Heatmap) ── */}
+      <div style={{ ...PANEL_STYLE, marginBottom: 20 }}>
+        <div style={SECTION_TITLE}>
+          <span>⚔️</span> Competitive Positioning Matrix (Assignee × Technology)
+        </div>
+        <AssigneeTechHeatmap
+          patents={patents}
+          taxonomy={taxonomy}
+          selectedAssignee={selectedAssignee}
+          selectedTechNode={selectedTechNode}
+          onSelectCell={(a, t) => {
+            setSelectedAssignee(a);
+            setSelectedTechNode(t);
+          }}
+        />
+      </div>
+
+      {/* ── 4. Assignee Taxonomy Footprint Cards ───────────────────────── */}
+      <div style={{ ...PANEL_STYLE, marginBottom: 20 }}>
+        <div style={SECTION_TITLE}>
+          <span>🏢</span> Assignee Taxonomy Footprints & Active Years
         </div>
         <AssigneeTaxonomyMatrix
           patents={patents}
@@ -142,16 +224,18 @@ export default function AnalyticsDashboard({ runId, taxonomy, isPubmed }) {
         />
       </div>
 
-      {/* ── Patent ↔ Taxonomy Table ───────────────────────────────────── */}
+      {/* ── 5. Multi-Dimensional Patent Drill-Down Table ───────────────── */}
       <div style={{ ...PANEL_STYLE }}>
         <div style={SECTION_TITLE}>
-          <span>🗂️</span> Patent → Taxonomy Mapping
+          <span>🗂️</span> Patent Drill-Down Explorer
         </div>
         <PatentTaxonomyTable
           patents={patents}
           taxonomy={taxonomy}
           selectedAssignee={selectedAssignee}
           onSelectAssignee={setSelectedAssignee}
+          selectedTechNode={selectedTechNode}
+          onSelectTechNode={setSelectedTechNode}
         />
       </div>
 

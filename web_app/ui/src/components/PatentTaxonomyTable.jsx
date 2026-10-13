@@ -48,7 +48,14 @@ const TH_STYLE = {
   zIndex: 1,
 };
 
-export default function PatentTaxonomyTable({ patents, taxonomy, selectedAssignee, onSelectAssignee }) {
+export default function PatentTaxonomyTable({
+  patents,
+  taxonomy,
+  selectedAssignee,
+  onSelectAssignee,
+  selectedTechNode,
+  onSelectTechNode
+}) {
   const [search, setSearch] = useState('');
   const [selectedYear, setSelectedYear] = useState('ALL');
   const patentTaxMap = useMemo(() => buildPatentTaxonomyMap(patents, taxonomy), [patents, taxonomy]);
@@ -72,9 +79,17 @@ export default function PatentTaxonomyTable({ patents, taxonomy, selectedAssigne
     return Array.from(set).sort();
   }, [patents]);
 
+  // Extract unique taxonomy node names
+  const availableTechNodes = useMemo(() => {
+    return taxonomy
+      .filter(n => n.level > 0)
+      .map(n => n.name)
+      .sort();
+  }, [taxonomy]);
+
   const filtered = useMemo(() => {
     return patents.filter(p => {
-      // 1. Assignee filter (from props or selection)
+      // 1. Assignee filter
       if (selectedAssignee && p.assignee !== selectedAssignee) return false;
 
       // 2. Year filter
@@ -83,7 +98,13 @@ export default function PatentTaxonomyTable({ patents, taxonomy, selectedAssigne
         if (y !== selectedYear) return false;
       }
 
-      // 3. Search query
+      // 3. Technology / Taxonomy Node filter
+      if (selectedTechNode) {
+        const nodes = patentTaxMap[p.patent_id] || [];
+        if (!nodes.includes(selectedTechNode)) return false;
+      }
+
+      // 4. Full search query
       if (search.trim()) {
         const q = search.toLowerCase();
         const matchesQuery = (
@@ -97,7 +118,7 @@ export default function PatentTaxonomyTable({ patents, taxonomy, selectedAssigne
 
       return true;
     });
-  }, [patents, search, selectedAssignee, selectedYear, patentTaxMap]);
+  }, [patents, search, selectedAssignee, selectedYear, selectedTechNode, patentTaxMap]);
 
   return (
     <div>
@@ -160,10 +181,32 @@ export default function PatentTaxonomyTable({ patents, taxonomy, selectedAssigne
           ))}
         </select>
 
-        {(selectedAssignee || selectedYear !== 'ALL' || search) && (
+        <select
+          value={selectedTechNode || 'ALL'}
+          onChange={e => onSelectTechNode?.(e.target.value === 'ALL' ? null : e.target.value)}
+          style={{
+            padding: '9px 12px',
+            borderRadius: 8,
+            border: '1px solid #334155',
+            background: '#1e293b',
+            color: selectedTechNode ? '#38bdf8' : '#cbd5e1',
+            fontSize: 13,
+            outline: 'none',
+            fontWeight: selectedTechNode ? 600 : 400,
+            maxWidth: 220,
+          }}
+        >
+          <option value="ALL">All Technologies ({availableTechNodes.length})</option>
+          {availableTechNodes.map(t => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+
+        {(selectedAssignee || selectedTechNode || selectedYear !== 'ALL' || search) && (
           <button
             onClick={() => {
               onSelectAssignee?.(null);
+              onSelectTechNode?.(null);
               setSelectedYear('ALL');
               setSearch('');
             }}

@@ -35,16 +35,20 @@ function buildChartData(patents) {
     .slice(0, TOP_N_ASSIGNEES)
     .map(([name]) => name);
 
-  // Build year → assignee count map
+  // Build year → assignee count map and patent list
   const yearMap = {};
   patents.forEach(p => {
     if (!p.filing_date) return;
     const year = String(p.filing_date).slice(0, 4);
     if (!year || isNaN(year)) return;
-    if (!yearMap[year]) yearMap[year] = { year };
+    if (!yearMap[year]) yearMap[year] = { year, _patents: {} };
     const assignee = topAssignees.includes(p.assignee) ? p.assignee : null;
     if (assignee) {
       yearMap[year][assignee] = (yearMap[year][assignee] || 0) + 1;
+      if (!yearMap[year]._patents[assignee]) yearMap[year]._patents[assignee] = [];
+      if (!yearMap[year]._patents[assignee].includes(p.patent_id)) {
+        yearMap[year]._patents[assignee].push(p.patent_id);
+      }
     }
   });
 
@@ -56,17 +60,65 @@ function buildChartData(patents) {
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
+  const rawData = payload[0]?.payload || {};
+  const patentsByAssignee = rawData._patents || {};
+
   return (
     <div style={{
-      background: '#1e293b', border: '1px solid #334155',
-      borderRadius: 8, padding: '10px 14px', color: '#f1f5f9'
+      background: '#0b1120',
+      border: '1px solid #334155',
+      borderRadius: 10,
+      padding: '12px 16px',
+      color: '#f1f5f9',
+      boxShadow: '0 12px 30px rgba(0,0,0,0.85)',
+      maxWidth: 360,
+      position: 'relative',
+      zIndex: 9999,
+      pointerEvents: 'none',
     }}>
-      <p style={{ margin: 0, fontWeight: 600, marginBottom: 6 }}>Year: {label}</p>
-      {payload.map((entry, i) => (
-        <p key={i} style={{ margin: '2px 0', color: entry.fill, fontSize: 13 }}>
-          {entry.dataKey}: <strong>{entry.value}</strong>
-        </p>
-      ))}
+      <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#e2e8f0', marginBottom: 8, borderBottom: '1px solid #1e293b', paddingBottom: 4 }}>
+        📅 Filing Year: {label}
+      </p>
+      {payload.map((entry, i) => {
+        const pids = patentsByAssignee[entry.dataKey] || [];
+        return (
+          <div key={i} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <span style={{ color: entry.fill, fontWeight: 600, fontSize: 13 }}>
+                ● {entry.dataKey}:
+              </span>
+              <strong style={{ color: '#fff', fontSize: 12 }}>
+                {entry.value} patent{entry.value > 1 ? 's' : ''}
+              </strong>
+            </div>
+            {pids.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4, paddingLeft: 12 }}>
+                {pids.slice(0, 6).map((pid, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      background: '#1e293b',
+                      color: '#a5b4fc',
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      border: '1px solid #334155',
+                    }}
+                  >
+                    {pid}
+                  </span>
+                ))}
+                {pids.length > 6 && (
+                  <span style={{ fontSize: 10, color: '#64748b', alignSelf: 'center' }}>
+                    +{pids.length - 6} more
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -90,16 +142,21 @@ export default function AssigneeFilingChart({ patents }) {
           <XAxis
             dataKey="year"
             tick={{ fill: '#94a3b8', fontSize: 12 }}
-            label={{ value: 'Filing Year', position: 'insideBottom', offset: -50, fill: '#64748b' }}
+            dy={6}
           />
           <YAxis
             allowDecimals={false}
             tick={{ fill: '#94a3b8', fontSize: 12 }}
             label={{ value: 'Patent Count', angle: -90, position: 'insideLeft', fill: '#64748b' }}
           />
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip
+            content={<CustomTooltip />}
+            cursor={false}
+            wrapperStyle={{ zIndex: 99999, pointerEvents: 'none' }}
+          />
           <Legend
-            wrapperStyle={{ paddingTop: 16, color: '#94a3b8', fontSize: 12 }}
+            verticalAlign="top"
+            wrapperStyle={{ paddingBottom: 16, color: '#94a3b8', fontSize: 12 }}
             formatter={(value) => (
               <span style={{ color: '#cbd5e1' }}>
                 {value.length > 28 ? value.slice(0, 28) + '…' : value}
