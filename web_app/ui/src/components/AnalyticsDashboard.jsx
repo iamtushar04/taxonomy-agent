@@ -105,7 +105,12 @@ export default function AnalyticsDashboard({ runId, taxonomy, isPubmed }) {
     <div style={{ padding: '20px 24px', overflowY: 'auto', minHeight: '100%', boxSizing: 'border-box' }}>
 
       {/* ── KPI strip ─────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: 16,
+        marginBottom: 20,
+      }}>
         {[
           { label: 'Total Patents', value: patents.length, icon: '📄' },
           { label: 'Unique Assignees', value: uniqueAssignees, icon: '🏢' },
@@ -114,7 +119,6 @@ export default function AnalyticsDashboard({ runId, taxonomy, isPubmed }) {
         ].map(({ label, value, icon }) => (
           <div key={label} style={{
             ...PANEL_STYLE,
-            flex: '1 1 120px',
             textAlign: 'center',
             padding: '14px 18px',
           }}>

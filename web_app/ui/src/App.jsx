@@ -475,7 +475,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
   };
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       <div style={{ padding: '10px 15px', background: '#fff', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', zIndex: 10, gap: 12 }}>
         {/* Sidebar toggle */}
         <button 
@@ -542,11 +542,11 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
         </div>
       </div>
 
-      <div style={{ flex: 1, background: '#fdfdfd', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div style={{ flex: 1, background: '#fdfdfd', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
 
         {/* ── ANALYTICS TAB ─────────────────────────────────────────── */}
         {activeTab === 'analytics' && currentRunId && (
-          <div style={{ flex: 1, background: '#0a0f1e', overflowY: 'auto', minHeight: 0, height: '100%' }}>
+          <div style={{ flex: 1, background: '#0a0f1e', overflowY: 'auto', minHeight: 0, minWidth: 0, height: '100%' }}>
             <AnalyticsDashboard
               runId={currentRunId}
               taxonomy={taxonomyData}
@@ -556,7 +556,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
         )}
 
         {/* ── GRAPH TAB ─────────────────────────────────────────────── */}
-        <div style={{ flex: 1, position: 'relative', display: activeTab === 'graph' ? 'flex' : 'none', flexDirection: 'column' }}>
+        <div style={{ flex: 1, position: 'relative', display: activeTab === 'graph' ? 'flex' : 'none', flexDirection: 'column', minWidth: 0 }}>
           {!currentRunId && status === 'idle' && (
              <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', color: '#888', zIndex: 5 }}>
                 <div style={{ fontSize: '48px', marginBottom: '10px' }}>📊</div>
@@ -597,9 +597,10 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
         </div>
       </div>
 
-      {/* ChatGPT Style Bottom Input Bar */}
-      <div style={{ padding: '20px', background: 'white', borderTop: '1px solid #eaeaea', display: 'flex', justifyContent: 'center', zIndex: 10 }}>
-        <div style={{ display: 'flex', width: '800px', maxWidth: '100%', background: '#f4f4f4', borderRadius: '24px', padding: '8px 12px', alignItems: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.05)' }}>
+      {/* ChatGPT Style Bottom Input Bar — only visible on Graph tab */}
+      {activeTab === 'graph' && (
+        <div style={{ padding: '20px', background: 'white', borderTop: '1px solid #eaeaea', display: 'flex', justifyContent: 'center', zIndex: 10 }}>
+          <div style={{ display: 'flex', width: '800px', maxWidth: '100%', background: '#f4f4f4', borderRadius: '24px', padding: '8px 12px', alignItems: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.05)' }}>
             <button 
               title="Upload Excel (Coming Soon)"
               style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#555', padding: '0 10px', display: 'flex', alignItems: 'center' }}
@@ -622,8 +623,9 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
             >
               {status === 'running' ? '⏳' : '↑'}
             </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -637,7 +639,7 @@ function AppLayout() {
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
       {showSidebar && <DashboardSidebar currentRunId={currentRunId} onSelectRun={setCurrentRunId} refreshTrigger={refreshTrigger} />}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
         <TaxonomyEditor 
           currentRunId={currentRunId} 
           setCurrentRunId={setCurrentRunId} 

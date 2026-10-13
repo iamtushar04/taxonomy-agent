@@ -184,8 +184,8 @@ export default function TechnologyTrendChart({ patents, taxonomy, onSelectTechNo
           No filing date information mapped to technology nodes.
         </div>
       ) : (
-        <div style={{ width: '100%', height: 360 }}>
-          <ResponsiveContainer>
+        <div style={{ width: '100%', minWidth: 0, height: 360 }}>
+          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 60 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis
