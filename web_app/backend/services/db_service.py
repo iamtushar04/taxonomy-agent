@@ -23,8 +23,8 @@ def get_run_status(db: Session, run_id: str, user_id: int):
     return db.query(models.Run.status, models.Run.error_message).filter(models.Run.id == run_id, models.Run.user_id == user_id).first()
 
 def get_run_taxonomy(db: Session, run_id: str, user_id: int):
-    """Fetch only the status and final taxonomy for a run, ensuring the user owns it."""
-    return db.query(models.Run.status, models.Run.final_taxonomy, models.Run.name).filter(models.Run.id == run_id, models.Run.user_id == user_id).first()
+    """Fetch status, final taxonomy, name, and source_data for a run, ensuring the user owns it."""
+    return db.query(models.Run.status, models.Run.final_taxonomy, models.Run.name, models.Run.source_data).filter(models.Run.id == run_id, models.Run.user_id == user_id).first()
 
 def get_runs_by_user(db: Session, user_id: int):
     """Fetch lightweight run history for the dashboard for a specific user."""

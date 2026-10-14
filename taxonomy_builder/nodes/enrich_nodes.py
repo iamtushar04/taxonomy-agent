@@ -10,19 +10,26 @@ def flatten_and_enrich_tree(tree: dict, parent_id: str | None, current_level: in
         node_id = f"T_{str(uuid.uuid4())[:8]}"
 
         supporting_patents = set()
+        supporting_products = set()
         patent_contexts = []
         contexts_by_patent = {}
 
-        # Group node: attach patents from all canonical concepts in this group
+        # Group node: attach patents and products from all canonical concepts in this group
         if node_name in concept_groups:
             for canonical_concept in concept_groups[node_name]:
                 for pid in canonical_concept.supporting_patent_ids:
-                    supporting_patents.add(pid)
+                    if str(pid).startswith("prod_"):
+                        supporting_products.add(pid)
+                    else:
+                        supporting_patents.add(pid)
 
-        # Granular leaf node: attach patents from the canonical concept by name
+        # Granular leaf node: attach patents/products from the canonical concept by name
         if node_name in concept_by_name:
             for pid in concept_by_name[node_name].supporting_patent_ids:
-                supporting_patents.add(pid)
+                if str(pid).startswith("prod_"):
+                    supporting_products.add(pid)
+                else:
+                    supporting_patents.add(pid)
             if hasattr(concept_by_name[node_name], "supporting_contexts"):
                 patent_contexts.extend(concept_by_name[node_name].supporting_contexts)
             if hasattr(concept_by_name[node_name], "contexts_by_patent"):
@@ -34,8 +41,9 @@ def flatten_and_enrich_tree(tree: dict, parent_id: str | None, current_level: in
             "parent_node_id": parent_id,
             "name": node_name,
             "level": current_level,
-            "description": descriptions.get(node_name, f"Patent information related to {node_name}."),
+            "description": descriptions.get(node_name, f"Technical details related to {node_name}."),
             "supporting_patent_ids": list(supporting_patents),
+            "supporting_product_ids": list(supporting_products),
             "patent_contexts": patent_contexts,
             "contexts_by_patent": contexts_by_patent
         }
@@ -59,12 +67,7 @@ def flatten_and_enrich_tree(tree: dict, parent_id: str | None, current_level: in
 
 def bubble_up_patents(flat_nodes: list[dict]) -> list[dict]:
     """
-    Fix 4: For every node, propagate all descendant patent IDs upward to ancestors.
-
-    Previously: Only leaf nodes and matched group nodes had supporting_patent_ids.
-                Parent nodes at Level 2/3/4 always had supporting_patent_ids = [].
-    Now: Every parent node accumulates the union of all patents from its subtree.
-         This makes every node in the taxonomy meaningful for patent search/navigation.
+    Fix 4: For every node, propagate all descendant patent & product IDs upward to ancestors.
     """
     if not flat_nodes:
         return flat_nodes
@@ -79,20 +82,28 @@ def bubble_up_patents(flat_nodes: list[dict]) -> list[dict]:
         if pid:
             children_map.setdefault(pid, []).append(n["node_id"])
 
-    # Recursively collect all descendant patents for a given node
-    def collect_descendant_patents(node_id: str, visited: set) -> set:
+    # Recursively collect all descendant patents and products for a given node
+    def collect_descendants(node_id: str, visited: set) -> tuple[set, set]:
         if node_id in visited:
-            return set()
+            return set(), set()
         visited.add(node_id)
-        result = set(node_map[node_id]["supporting_patent_ids"])
+        
+        node = node_map[node_id]
+        patents = set(node.get("supporting_patent_ids", []))
+        products = set(node.get("supporting_product_ids", []))
+        
         for child_id in children_map.get(node_id, []):
-            result.update(collect_descendant_patents(child_id, visited))
-        return result
+            child_patents, child_products = collect_descendants(child_id, visited)
+            patents.update(child_patents)
+            products.update(child_products)
+            
+        return patents, products
 
     # Apply bubble-up to every node
     for n in flat_nodes:
-        all_patents = collect_descendant_patents(n["node_id"], set())
+        all_patents, all_products = collect_descendants(n["node_id"], set())
         n["supporting_patent_ids"] = sorted(list(all_patents))
+        n["supporting_product_ids"] = sorted(list(all_products))
 
     return flat_nodes
 

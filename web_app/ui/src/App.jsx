@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import DashboardSidebar from './components/DashboardSidebar';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
+import ExcelPreviewModal from './components/ExcelPreviewModal';
 import axiosClient from './api/axiosClient';
 
 import {
@@ -69,6 +70,7 @@ const getLayoutedElements = (nodes, edges) => {
 const MindmapNode = ({ id, data }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
+  const [showProductTooltip, setShowProductTooltip] = useState(false);
   const { setNodes, setEdges, getNodes, getEdges } = useReactFlow();
 
   const applyLayoutAndState = (newNodes, newEdges) => {
@@ -209,6 +211,116 @@ const MindmapNode = ({ id, data }) => {
             )}
           </div>
         )}
+        {data.supporting_product_ids && data.supporting_product_ids.length > 0 && (
+          <div 
+            style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 6 }}
+            onMouseEnter={() => setShowProductTooltip(true)}
+            onMouseLeave={() => setShowProductTooltip(false)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span
+              style={{
+                background: '#065f46',
+                color: '#6ee7b7',
+                fontSize: '10px',
+                fontWeight: 700,
+                padding: '2px 7px',
+                borderRadius: 10,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                cursor: 'pointer',
+                border: '1px solid #059669',
+                boxShadow: showProductTooltip ? '0 0 8px rgba(110,231,183,0.5)' : 'none'
+              }}
+            >
+              📦 {data.supporting_product_ids.length}
+            </span>
+
+            {/* Rich Commercial Product Tooltip Popover */}
+            {showProductTooltip && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  bottom: '125%',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  marginBottom: 8,
+                  width: 320,
+                  background: '#0f172a',
+                  color: '#f8fafc',
+                  padding: '12px 14px',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  zIndex: 9999,
+                  boxShadow: '0 12px 28px rgba(0,0,0,0.4), 0 0 0 1px #334155',
+                  lineHeight: 1.4,
+                  cursor: 'default',
+                  maxHeight: '280px',
+                  overflowY: 'auto'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Node-specific header */}
+                <div style={{ fontWeight: 'bold', marginBottom: 6, color: '#6ee7b7', borderBottom: '1px solid #1e293b', paddingBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>📦 {data.label}</span>
+                  <span style={{ fontSize: 10, color: '#94a3b8' }}>Commercial Alignment</span>
+                </div>
+
+                {/* Node Technical Definition / Description */}
+                {data.description && (
+                  <div style={{ fontSize: 11, color: '#cbd5e1', marginBottom: 8, background: '#1e293b', padding: '6px 8px', borderRadius: 6, borderLeft: '2px solid #059669', lineHeight: 1.35 }}>
+                    {data.description}
+                  </div>
+                )}
+
+                {data.supporting_product_ids.map(prodId => {
+                  const pInfo = data.products_map?.[prodId] || {
+                    product_name: prodId,
+                    brand_or_assignee: 'Unknown Vendor',
+                    features: []
+                  };
+
+                  // Filter features specifically relevant to this node name or keywords
+                  const nodeKeywords = data.label.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+                  const relevantFeatures = (pInfo.features || []).filter(feat => {
+                    const fLower = feat.toLowerCase();
+                    return nodeKeywords.some(kw => fLower.includes(kw));
+                  });
+
+                  // If specific features matched, show those; otherwise show top 2 features with attribution
+                  const displayFeatures = relevantFeatures.length > 0 
+                    ? relevantFeatures 
+                    : (pInfo.features || []).slice(0, 2);
+
+                  return (
+                    <div key={prodId} style={{ marginTop: 6, paddingBottom: 6, borderBottom: '1px solid #1e293b' }}>
+                      <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: 12, marginBottom: 2 }}>
+                        {pInfo.product_name || prodId}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#38bdf8', marginBottom: 4 }}>
+                        Vendor: {pInfo.brand_or_assignee || 'Unknown'} {pInfo.source_filename && `• ${pInfo.source_filename}`}
+                      </div>
+
+                      {displayFeatures.length > 0 && (
+                        <div style={{ marginTop: 4 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: relevantFeatures.length > 0 ? '#10b981' : '#94a3b8', textTransform: 'uppercase', marginBottom: 3 }}>
+                            {relevantFeatures.length > 0 ? `🎯 Node-Specific Features (${displayFeatures.length}):` : 'Product Capabilities:'}
+                          </div>
+                          {displayFeatures.map((feat, fi) => (
+                            <div key={fi} style={{ paddingLeft: 6, borderLeft: `2px solid ${relevantFeatures.length > 0 ? '#10b981' : '#334155'}`, color: '#e2e8f0', fontSize: 11, marginBottom: 3 }}>
+                              "{feat}"
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
         {hasChildren && <span style={{ marginLeft: 8, color: '#aaa', fontSize: '10px' }}>{data.isExpanded ? '▼' : '▶'}</span>}
       </div>
 
@@ -235,6 +347,15 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
   const [isPubmed, setIsPubmed] = useState(false);
   const [taxonomyData, setTaxonomyData] = useState([]);  // raw taxonomy array for analytics
   
+  // Product Documents Upload state
+  const [sessionUploadId, setSessionUploadId] = useState(null);
+  const [uploadedProductNames, setUploadedProductNames] = useState([]);
+  const [isUploadingDocs, setIsUploadingDocs] = useState(false);
+  const [excelPreviewData, setExcelPreviewData] = useState(null);
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
+  const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
+  const fileInputRef = useRef(null);
+
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const { getNodes, getEdges } = useReactFlow();
@@ -284,6 +405,32 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
 
   const nodeTypes = useMemo(() => ({ mindmap: MindmapNode }), []);
 
+  const handleProductFileUpload = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
+
+    setIsUploadingDocs(true);
+    try {
+      const res = await axiosClient.post('/api/products/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setSessionUploadId(res.data.session_upload_id);
+      const names = (res.data.products || []).map(p => p.product_name || p.source_filename);
+      setUploadedProductNames(names);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload product documents: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setIsUploadingDocs(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const handleRunPipeline = async () => {
     try {
       if (currentRunId) {
@@ -292,12 +439,16 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
         setEdges([]);
       }
       setStatus('running');
-      const patentList = patentInput.split(',').map((id) => id.trim());
-      const res = await axiosClient.post(`/api/build-taxonomy`, { patent_ids: patentList });
+      const patentList = patentInput.split(',').map((id) => id.trim()).filter(Boolean);
+      const payload = {
+        patent_ids: patentList,
+        session_upload_id: sessionUploadId
+      };
+      const res = await axiosClient.post(`/api/build-taxonomy`, payload);
       if (onRunComplete) onRunComplete(); // Trigger immediate refresh to show pending status in sidebar
       pollStatus(res.data.run_id);
     } catch (error) {
-      alert("Error starting pipeline.");
+      alert("Error starting pipeline: " + (error.response?.data?.detail || error.message));
       setStatus('idle');
     }
   };
@@ -335,6 +486,8 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
         setCurrentRunName(res.data.name);
       }
       const taxonomyArray = res.data.taxonomy;
+      const productsMap = res.data.products_map || {};
+      const patentsMeta = res.data.patents_meta || {};
       setTaxonomyData(taxonomyArray || []);
       // Detect if all node IDs are numeric (PubMed) vs alphanumeric (patents)
       const hasPmids = taxonomyArray?.some(n => n.supporting_pmids?.length > 0);
@@ -352,13 +505,17 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
           type: 'mindmap',
           data: { 
             label: item.name, 
+            description: item.description,
             isExpanded, 
             saveHistory, 
             patent_contexts: item.patent_contexts,
             contexts_by_patent: item.contexts_by_patent,
             contexts_by_pmid: item.contexts_by_pmid,
             supporting_patent_ids: item.supporting_patent_ids,
-            supporting_pmids: item.supporting_pmids
+            supporting_pmids: item.supporting_pmids,
+            supporting_product_ids: item.supporting_product_ids || [],
+            products_map: productsMap,
+            patents_meta: patentsMeta
           },
           position: { x: 0, y: 0 },
           hidden: isHidden
@@ -437,9 +594,26 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
     [getNodes, getEdges, setNodes, setEdges, saveHistory]
   );
 
+  const handlePreviewExcel = async () => {
+    if (!currentRunId) return;
+    try {
+      setIsGeneratingPreview(true);
+      const response = await axiosClient.post(`/api/preview-excel/${currentRunId}`, {
+        nodes: getNodes(),
+        edges: getEdges()
+      });
+      setExcelPreviewData(response.data);
+    } catch (error) {
+      console.error("Preview failed:", error);
+      alert("Failed to generate Excel preview: " + (error.response?.data?.detail || error.message));
+    } finally {
+      setIsGeneratingPreview(false);
+    }
+  };
+
   const handleDownload = async () => {
     try {
-      setStatus('running'); 
+      setIsDownloadingExcel(true);
       const response = await axiosClient.post(`/api/download-excel/${currentRunId}`, {
         nodes: getNodes(),
         edges: getEdges()
@@ -466,11 +640,11 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
       document.body.appendChild(link);
       link.click();
       link.remove();
-      setStatus('completed');
     } catch (error) {
       console.error(error);
       alert("Failed to download excel");
-      setStatus('completed');
+    } finally {
+      setIsDownloadingExcel(false);
     }
   };
 
@@ -517,12 +691,29 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
           </div>
         )}
 
-        {/* Right side: download + user + logout */}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* Right side: preview + download + user + logout */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
           {currentRunId && activeTab === 'graph' && (
-            <button onClick={handleDownload} 
-                    style={{ padding: '7px 14px', background: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: 13 }}>
-              Download Excel 📥
+            <button 
+              onClick={handlePreviewExcel} 
+              disabled={isGeneratingPreview}
+              style={{ 
+                padding: '7px 16px', 
+                background: '#0284c7', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '6px', 
+                cursor: isGeneratingPreview ? 'not-allowed' : 'pointer', 
+                fontWeight: 600, 
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                opacity: isGeneratingPreview ? 0.7 : 1
+              }}
+            >
+              <span>{isGeneratingPreview ? '⏳ Loading Preview...' : 'Preview Excel'}</span>
             </button>
           )}
           <span style={{ fontSize: '13px', color: '#555', fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
@@ -599,32 +790,82 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
 
       {/* ChatGPT Style Bottom Input Bar — only visible on Graph tab */}
       {activeTab === 'graph' && (
-        <div style={{ padding: '20px', background: 'white', borderTop: '1px solid #eaeaea', display: 'flex', justifyContent: 'center', zIndex: 10 }}>
+        <div style={{ padding: '16px 20px', background: 'white', borderTop: '1px solid #eaeaea', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 10 }}>
+          {/* Uploaded product files chip preview */}
+          {uploadedProductNames.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, width: '800px', maxWidth: '100%', marginBottom: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>Attached Products:</span>
+              {uploadedProductNames.map((name, i) => (
+                <span
+                  key={i}
+                  style={{
+                    background: '#ecfdf5',
+                    color: '#065f46',
+                    border: '1px solid #a7f3d0',
+                    borderRadius: 12,
+                    padding: '2px 8px',
+                    fontSize: 11,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4
+                  }}
+                >
+                  📦 {name.length > 28 ? name.slice(0, 28) + '…' : name}
+                </span>
+              ))}
+              <button
+                onClick={() => { setUploadedProductNames([]); setSessionUploadId(null); }}
+                style={{ background: 'transparent', border: 'none', color: '#dc2626', fontSize: 11, cursor: 'pointer', padding: 0 }}
+              >
+                Clear all ✕
+              </button>
+            </div>
+          )}
+
           <div style={{ display: 'flex', width: '800px', maxWidth: '100%', background: '#f4f4f4', borderRadius: '24px', padding: '8px 12px', alignItems: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.05)' }}>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleProductFileUpload}
+              style={{ display: 'none' }}
+              multiple
+              accept=".pdf,.docx,.xlsx,.xls,.csv,.txt"
+            />
             <button 
-              title="Upload Excel (Coming Soon)"
-              style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#555', padding: '0 10px', display: 'flex', alignItems: 'center' }}
-              onClick={() => alert("Excel upload functionality coming soon!")}
+              title="Attach Product Documents (.pdf, .docx, .xlsx, .csv)"
+              disabled={isUploadingDocs || status === 'running'}
+              style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', color: uploadedProductNames.length > 0 ? '#10b981' : '#555', padding: '0 10px', display: 'flex', alignItems: 'center' }}
+              onClick={() => fileInputRef.current?.click()}
             >
-              ➕
+              {isUploadingDocs ? '⏳' : (uploadedProductNames.length > 0 ? '📦' : '➕')}
             </button>
             <input 
               type="text" 
               value={patentInput} 
               onChange={(e) => setPatentInput(e.target.value)} 
-              placeholder="Message Taxonomy AI or enter Patent / PubMed IDs..."
+              placeholder={uploadedProductNames.length > 0 ? "Enter Patent IDs to map with attached products..." : "Message Taxonomy AI or enter Patent / PubMed IDs..."}
               style={{ flex: 1, background: 'transparent', border: 'none', padding: '10px', fontSize: '15px', outline: 'none' }}
               onKeyDown={(e) => { if (e.key === 'Enter') handleRunPipeline(); }}
             />
             <button 
               onClick={handleRunPipeline} 
-              disabled={status === 'running'} 
+              disabled={status === 'running' || isUploadingDocs} 
               style={{ background: status === 'running' ? '#ccc' : '#000', color: 'white', border: 'none', borderRadius: '50%', width: '36px', height: '36px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}
             >
               {status === 'running' ? '⏳' : '↑'}
             </button>
           </div>
         </div>
+      )}
+
+      {/* Full-fidelity Excel Spreadsheet Preview Modal */}
+      {excelPreviewData && (
+        <ExcelPreviewModal
+          previewData={excelPreviewData}
+          onClose={() => setExcelPreviewData(null)}
+          onDownload={handleDownload}
+          isDownloading={isDownloadingExcel}
+        />
       )}
     </div>
   );

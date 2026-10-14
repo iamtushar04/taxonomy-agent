@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 class PatentRequest(BaseModel):
     patent_ids: List[str]
+    session_upload_id: Optional[str] = None
 
 class GraphEdge(BaseModel):
     source: str

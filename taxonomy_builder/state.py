@@ -54,13 +54,15 @@ class HierarchyTree(BaseModel):
 # Final Output Schema (Matches existing pipeline's expected input)
 # ---------------------------------------------------------------------------
 
-class TaxonomyNodeFinal(TypedDict):
+class TaxonomyNodeFinal(TypedDict, total=False):
     node_id: str
     parent_node_id: str | None
     name: str
     level: int
     description: str
     supporting_patent_ids: list[str]
+    supporting_pmids: list[str]
+    supporting_product_ids: list[str]
 
 # ---------------------------------------------------------------------------
 # Global Graph State
@@ -86,6 +88,9 @@ class TaxonomyGenerationState(TypedDict, total=False):
     
     # ── Final Output ─────────────────────────────────────────────────────────
     final_taxonomy: list[TaxonomyNodeFinal]
+    
+    # ── Optional Commercial Product Ingestion ────────────────────────────────
+    products_data: dict[str, Any]
     
     # ── Errors ───────────────────────────────────────────────────────────────
     errors: Annotated[list[str], operator.add]

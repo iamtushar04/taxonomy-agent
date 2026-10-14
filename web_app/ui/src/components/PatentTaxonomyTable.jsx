@@ -58,6 +58,7 @@ export default function PatentTaxonomyTable({
 }) {
   const [search, setSearch] = useState('');
   const [selectedYear, setSelectedYear] = useState('ALL');
+  const [activePatentModal, setActivePatentModal] = useState(null);
   const patentTaxMap = useMemo(() => buildPatentTaxonomyMap(patents, taxonomy), [patents, taxonomy]);
 
   // Extract unique years
@@ -246,12 +247,17 @@ export default function PatentTaxonomyTable({
               </tr>
             ) : (
               filtered.map(p => (
-                <tr key={p.patent_id} style={{ transition: 'background 0.15s' }}
+                <tr key={p.patent_id} style={{ transition: 'background 0.15s', cursor: 'pointer' }}
+                  onClick={() => setActivePatentModal(p)}
                   onMouseEnter={e => e.currentTarget.style.background = '#1e293b'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  title="Click to view full patent details, abstract, and taxonomy alignment"
                 >
                   <td style={{ ...TD_STYLE, fontFamily: 'monospace', color: '#6366f1', fontWeight: 600 }}>
-                    {p.patent_id}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>📄</span>
+                      <span style={{ textDecoration: 'underline' }}>{p.patent_id}</span>
+                    </div>
                   </td>
                   <td style={{ ...TD_STYLE }}>{p.title || '—'}</td>
                   <td style={{ ...TD_STYLE, color: '#94a3b8' }}>{p.assignee || '—'}</td>
@@ -285,8 +291,138 @@ export default function PatentTaxonomyTable({
         </table>
       </div>
       <div style={{ marginTop: 8, color: '#475569', fontSize: 12, textAlign: 'right' }}>
-        Showing {filtered.length} of {patents.length} patents
+        Showing {filtered.length} of {patents.length} patents (click any row for full patent details)
       </div>
+
+      {/* Patent Detail Modal */}
+      {activePatentModal && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            backdropFilter: 'blur(4px)'
+          }}
+          onClick={() => setActivePatentModal(null)}
+        >
+          <div 
+            style={{
+              background: '#0f172a',
+              border: '1px solid #334155',
+              borderRadius: 16,
+              maxWidth: 720,
+              width: '100%',
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              padding: 24,
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+              color: '#f8fafc'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #334155', paddingBottom: 16, marginBottom: 16 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ background: '#312e81', color: '#a5b4fc', padding: '3px 8px', borderRadius: 6, fontSize: 13, fontFamily: 'monospace', fontWeight: 700 }}>
+                    {activePatentModal.patent_id}
+                  </span>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                    Filed: {activePatentModal.filing_date ? String(activePatentModal.filing_date).slice(0, 10) : 'N/A'}
+                  </span>
+                </div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, marginTop: 10, marginBottom: 4, color: '#f1f5f9', lineHeight: 1.4 }}>
+                  {activePatentModal.title || 'No Title Available'}
+                </h3>
+                <div style={{ fontSize: 13, color: '#38bdf8' }}>
+                  Assignee: {activePatentModal.assignee || 'Unknown'}
+                </div>
+              </div>
+              <button 
+                onClick={() => setActivePatentModal(null)}
+                style={{
+                  background: '#1e293b',
+                  border: '1px solid #475569',
+                  color: '#cbd5e1',
+                  borderRadius: 8,
+                  padding: '6px 12px',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  fontWeight: 'bold'
+                }}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* Aligned Taxonomy Categories */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>
+                Aligned Taxonomy Categories ({patentTaxMap[activePatentModal.patent_id]?.length || 0})
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {(patentTaxMap[activePatentModal.patent_id] || []).map((tName, i) => (
+                  <span key={i} style={{
+                    background: '#1e1b4b',
+                    border: '1px solid #4338ca',
+                    color: '#c7d2fe',
+                    padding: '4px 10px',
+                    borderRadius: 99,
+                    fontSize: 12,
+                    fontWeight: 600
+                  }}>
+                    {tName}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* AI Summary / Abstract */}
+            {activePatentModal.summary && (
+              <div style={{ marginBottom: 18, background: '#1e293b', padding: 14, borderRadius: 10, border: '1px solid #334155' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#38bdf8', marginBottom: 6 }}>
+                  ✨ Technical Summary
+                </div>
+                <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.5 }}>
+                  {activePatentModal.summary}
+                </div>
+              </div>
+            )}
+
+            {/* Full Text / Claims Snippet */}
+            {activePatentModal.full_text && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8 }}>
+                  Patent Specification & Claims Preview
+                </div>
+                <div style={{
+                  background: '#090d16',
+                  padding: 14,
+                  borderRadius: 10,
+                  border: '1px solid #1e293b',
+                  fontSize: 12,
+                  color: '#94a3b8',
+                  lineHeight: 1.6,
+                  maxHeight: 240,
+                  overflowY: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  fontFamily: 'monospace'
+                }}>
+                  {activePatentModal.full_text}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

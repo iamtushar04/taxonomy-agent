@@ -13,10 +13,24 @@ def extract_concepts(payload: dict[str, Any]) -> dict:
     """
     patent_id = payload["patent_id"]
     text = payload["text"]
+    is_product = payload.get("is_product", False)
 
-    print(f"--- EXTRACTING CONCEPTS: {patent_id} ---")
+    if is_product:
+        print(f"--- EXTRACTING PRODUCT CONCEPTS: {patent_id} ---")
+        system_prompt = """You are an expert technical product analyst and ontologist. Your task is to extract highly granular technical features, architecture components, engineering mechanisms, and parameters from the provided commercial product specification.
 
-    system_prompt = """You are an expert patent analyst. Your task is to extract highly granular technical concepts and parameters from the provided patent text.
+RULES:
+1. Extract granular engineering parameters, components, modules, protocols, materials, and algorithms.
+2. Focus strictly on substantive technical and functional capabilities. Do NOT extract marketing fluff (e.g., "seamless", "best-in-class", "innovative solution").
+3. For each concept, provide a "domain_path": a list of 2-4 technology ancestry levels that places this concept in the engineering/scientific taxonomy (e.g. ["Biotechnology", "Peptide Therapeutics", "Formulation"]).
+4. Output a JSON object with:
+   - "reasoning": a 1-2 sentence explanation of the technical domain of this commercial product
+   - "concepts": a list of objects, each with "name", "context", and "domain_path"
+"""
+        user_prompt = f"Extract the key technical features and architectural concepts from this product document:\n\n{text[:60000]}"
+    else:
+        print(f"--- EXTRACTING CONCEPTS: {patent_id} ---")
+        system_prompt = """You are an expert patent analyst. Your task is to extract highly granular technical concepts and parameters from the provided patent text.
 
 First, identify the technology domain this patent belongs to. Then extract specific technical concepts.
 
@@ -54,8 +68,7 @@ RULES:
   ]
 }
 """
-
-    user_prompt = f"Extract the key technical concepts from the following patent text:\n\n{text[:60000]}"
+        user_prompt = f"Extract the key technical concepts from the following patent text:\n\n{text[:60000]}"
 
     try:
         response_json = chat_json(

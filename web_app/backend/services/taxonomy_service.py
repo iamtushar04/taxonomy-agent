@@ -17,7 +17,7 @@ from database import SessionLocal
 from services import db_service
 from taxonomy_builder.utils.tracer import init_trace
 
-def run_taxonomy_pipeline(run_id: str, patent_ids: List[str]):
+def run_taxonomy_pipeline(run_id: str, patent_ids: List[str], session_upload_id: str = None):
     try:
         db = SessionLocal()
         db_service.update_run_status_running(db, run_id)
@@ -36,6 +36,20 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str]):
         
         is_pubmed = all(pid.isdigit() for pid in patent_ids)
         
+        # Check if products were uploaded in this session
+        products_data = {}
+        if session_upload_id:
+            try:
+                # pyrefly: ignore [missing-import]
+                from routes.product_routes import _UPLOAD_CACHE
+                cached_list = _UPLOAD_CACHE.get(session_upload_id, [])
+                for prod in cached_list:
+                    # prod is ParsedProduct model
+                    p_dict = prod.dict() if hasattr(prod, 'dict') else dict(prod)
+                    products_data[p_dict.get("product_id")] = p_dict
+            except Exception as pe:
+                print(f"Could not load products for session {session_upload_id}: {pe}")
+
         if is_pubmed:
             from taxonomy_builder.pubmed_graph import build_pubmed_graph
             graph = build_pubmed_graph()
@@ -51,6 +65,7 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str]):
             initial_state = {
                 "run_id": run_id,
                 "patent_ids": patent_ids,
+                "products_data": products_data,
                 "all_concepts": [],
                 "errors": []
             }
@@ -63,7 +78,12 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str]):
         db = SessionLocal()
         
         final_taxonomy = final_state.get("final_taxonomy", [])
-        source_data = final_state.get("pubmed_data", final_state.get("patents_data", {}))
+        raw_source = final_state.get("pubmed_data", final_state.get("patents_data", {}))
+        
+        # Structure source_data so both patents and products are persisted
+        source_data = dict(raw_source)
+        if products_data:
+            source_data["_products"] = products_data
         
         # Generate meaningful name
         meaningful_name = None
@@ -173,3 +193,104 @@ def process_excel_generation(run_id: str, payload, run_record):
         raise HTTPException(status_code=404, detail="Excel file generation failed.")
         
     return matrix_path
+
+
+def build_excel_preview_data(matrix_path: str) -> dict:
+    """
+    Parses the generated taxonomy matrix Excel file into structured JSON
+    including merged cells, colors, fonts, and dimensions so the frontend can
+    render an exact pixel-matched preview before downloading.
+    """
+    import openpyxl
+    
+    if not os.path.exists(matrix_path):
+        raise HTTPException(status_code=404, detail="Excel matrix file not found.")
+
+    wb = openpyxl.load_workbook(matrix_path, data_only=True)
+    ws = wb.active
+
+    # Compute merged cells
+    merged_ranges = []
+    covered_cells = set()
+    for m in ws.merged_cells.ranges:
+        merged_ranges.append({
+            'min_row': m.min_row,
+            'max_row': m.max_row,
+            'min_col': m.min_col,
+            'max_col': m.max_col,
+            'rowspan': m.max_row - m.min_row + 1,
+            'colspan': m.max_col - m.min_col + 1
+        })
+        for r in range(m.min_row, m.max_row + 1):
+            for c in range(m.min_col, m.max_col + 1):
+                if not (r == m.min_row and c == m.min_col):
+                    covered_cells.add((r, c))
+
+    merge_by_top_left = {(m['min_row'], m['min_col']): m for m in merged_ranges}
+
+    rows = []
+    max_r = ws.max_row
+    max_c = ws.max_column
+
+    # Get column widths
+    col_widths = {}
+    for c in range(1, max_c + 1):
+        col_letter = openpyxl.utils.get_column_letter(c)
+        dim = ws.column_dimensions.get(col_letter)
+        col_widths[c] = dim.width if dim and dim.width else 18
+
+    for r in range(1, max_r + 1):
+        row_cells = []
+        for c in range(1, max_c + 1):
+            if (r, c) in covered_cells:
+                continue
+
+            cell = ws.cell(r, c)
+            val = cell.value
+
+            # Extract color
+            fill_color = None
+            if cell.fill and cell.fill.start_color and cell.fill.start_color.rgb:
+                rgb_str = str(cell.fill.start_color.rgb)
+                if len(rgb_str) == 8 and rgb_str != '00000000':
+                    fill_color = '#' + rgb_str[2:]
+                elif len(rgb_str) == 6:
+                    fill_color = '#' + rgb_str
+
+            font_color = None
+            if cell.font and cell.font.color and cell.font.color.rgb:
+                c_str = str(cell.font.color.rgb)
+                if len(c_str) == 8 and c_str != '00000000':
+                    font_color = '#' + c_str[2:]
+                elif len(c_str) == 6:
+                    font_color = '#' + c_str
+
+            bold = cell.font.bold if cell.font else False
+            align_h = cell.alignment.horizontal if cell.alignment else 'left'
+            align_v = cell.alignment.vertical if cell.alignment else 'middle'
+
+            cell_data = {
+                'row': r,
+                'col': c,
+                'value': val if val is not None else '',
+                'bg': fill_color,
+                'color': font_color,
+                'bold': bold,
+                'align_h': align_h,
+                'align_v': align_v,
+            }
+
+            if (r, c) in merge_by_top_left:
+                cell_data['rowspan'] = merge_by_top_left[(r, c)]['rowspan']
+                cell_data['colspan'] = merge_by_top_left[(r, c)]['colspan']
+
+            row_cells.append(cell_data)
+        rows.append(row_cells)
+
+    return {
+        "title": ws.title,
+        "max_row": max_r,
+        "max_col": max_c,
+        "col_widths": col_widths,
+        "rows": rows
+    }

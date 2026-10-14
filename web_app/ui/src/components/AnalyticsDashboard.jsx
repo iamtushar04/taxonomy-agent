@@ -17,6 +17,7 @@ import TechnologyTrendChart from './TechnologyTrendChart';
 import AssigneeTechHeatmap from './AssigneeTechHeatmap';
 import PatentTaxonomyTable from './PatentTaxonomyTable';
 import AssigneeTaxonomyMatrix from './AssigneeTaxonomyMatrix';
+import ProductPatentCoverageTable from './ProductPatentCoverageTable';
 
 const PANEL_STYLE = {
   background: '#0f172a',
@@ -37,6 +38,7 @@ const SECTION_TITLE = {
 
 export default function AnalyticsDashboard({ runId, taxonomy, isPubmed }) {
   const [patents, setPatents] = useState(null); // null = loading, [] = empty, [...] = loaded
+  const [products, setProducts] = useState([]);
   const [error, setError] = useState(null);
   const [selectedAssignee, setSelectedAssignee] = useState(null);
   const [selectedTechNode, setSelectedTechNode] = useState(null);
@@ -44,12 +46,16 @@ export default function AnalyticsDashboard({ runId, taxonomy, isPubmed }) {
   useEffect(() => {
     if (!runId || isPubmed) return;
     setPatents(null);
+    setProducts([]);
     setError(null);
     setSelectedAssignee(null);
     setSelectedTechNode(null);
 
     axiosClient.get(`/api/analytics/${runId}`)
-      .then(res => setPatents(res.data.patents || []))
+      .then(res => {
+        setPatents(res.data.patents || []);
+        setProducts(res.data.products || []);
+      })
       .catch(err => {
         const msg = err.response?.data?.detail || 'Failed to load analytics data.';
         setError(msg);
@@ -228,7 +234,21 @@ export default function AnalyticsDashboard({ runId, taxonomy, isPubmed }) {
         />
       </div>
 
-      {/* ── 5. Multi-Dimensional Patent Drill-Down Table ───────────────── */}
+      {/* ── 5. Product ↔ Patent Commercialization & Coverage Table ──── */}
+      {products.length > 0 && (
+        <div style={{ ...PANEL_STYLE, marginBottom: 20 }}>
+          <div style={SECTION_TITLE}>
+            <span>🛡️</span> Product ↔ Patent Commercialization Coverage
+          </div>
+          <ProductPatentCoverageTable
+            products={products}
+            taxonomy={taxonomy}
+            patents={patents}
+          />
+        </div>
+      )}
+
+      {/* ── 6. Multi-Dimensional Patent Drill-Down Table ───────────────── */}
       <div style={{ ...PANEL_STYLE }}>
         <div style={SECTION_TITLE}>
           <span>🗂️</span> Patent Drill-Down Explorer
