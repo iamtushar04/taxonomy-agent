@@ -17,7 +17,7 @@ from database import SessionLocal
 from services import db_service
 from taxonomy_builder.utils.tracer import init_trace
 
-def run_taxonomy_pipeline(run_id: str, patent_ids: List[str], session_upload_id: str = None):
+def run_taxonomy_pipeline(run_id: str, patent_ids: List[str], session_upload_id: str = None, mental_model_context: str = None):
     try:
         db = SessionLocal()
         db_service.update_run_status_running(db, run_id)
@@ -41,7 +41,7 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str], session_upload_id:
         if session_upload_id:
             try:
                 # pyrefly: ignore [missing-import]
-                from routes.product_routes import _UPLOAD_CACHE
+                from routes.products import _UPLOAD_CACHE
                 cached_list = _UPLOAD_CACHE.get(session_upload_id, [])
                 for prod in cached_list:
                     # prod is ParsedProduct model
@@ -69,6 +69,8 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str], session_upload_id:
                 "all_concepts": [],
                 "errors": []
             }
+            if mental_model_context:
+                initial_state["mental_model_context"] = mental_model_context
             
         # INCREASED RECURSION LIMIT FOR 1,000 PATENTS
         config = {"configurable": {"thread_id": run_id}, "recursion_limit": 2000}
@@ -107,6 +109,56 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str], session_upload_id:
                         meaningful_name = " & ".join(child_names) + f" ({root_name})"
         
         db_service.update_run_status_completed(db, run_id, final_taxonomy, source_data, is_pubmed, meaningful_name)
+
+        # Automatically post taxonomy completion announcement to ChatSession
+        try:
+            import datetime
+            chat_sess = db.query(models.ChatSession).filter(models.ChatSession.run_id == run_id).first()
+            if chat_sess:
+                key_branches = []
+                for n in (final_taxonomy or []):
+                    if n.get("level") in (1, 2) and n.get("name") not in ["Technology", "Technologies", "Patent", "Patents"]:
+                        p_count = len(n.get("supporting_patent_ids") or [])
+                        p_str = f" ({p_count} patents)" if p_count > 0 else ""
+                        key_branches.append(f"• **{n.get('name')}**{p_str}")
+                    if len(key_branches) >= 4:
+                        break
+
+                prod_context = ""
+                if chat_sess.mental_model and isinstance(chat_sess.mental_model, dict):
+                    pname = chat_sess.mental_model.get("product_name")
+                    if pname:
+                        prod_context = f" aligned with your focus on **{pname}**"
+
+                branches_md = "\n".join(key_branches) if key_branches else "• Comprehensive technological hierarchy"
+
+                completion_msg = (
+                    f"🌿 **Taxonomy Generated Successfully!**\n\n"
+                    f"I have analyzed your **{len(patent_ids)} item(s)** and structured them into a **{len(final_taxonomy)}-category taxonomy**{prod_context}.\n\n"
+                    f"**Key Hierarchy Branches:**\n{branches_md}\n\n"
+                    f"The full interactive graph is ready on the right! You can ask me:\n"
+                    f"• *'Which patents focus on specific product capabilities?'*\n"
+                    f"• *'Why are patents grouped under these categories?'*\n"
+                    f"• *'Map [Concept X] under [Concept Y]'* to customize branches."
+                )
+
+                msgs = list(chat_sess.messages or [])
+                msgs.append({
+                    "role": "assistant",
+                    "content": completion_msg,
+                    "intent": "taxonomy_completed",
+                    "metadata": {
+                        "type": "taxonomy_completion_summary",
+                        "node_count": len(final_taxonomy or []),
+                        "patent_count": len(patent_ids),
+                        "run_name": meaningful_name
+                    },
+                    "timestamp": datetime.datetime.utcnow().isoformat()
+                })
+                chat_sess.messages = msgs
+                db.commit()
+        except Exception as sess_err:
+            print(f"[taxonomy_service] Could not append completion message for run {run_id}: {sess_err}")
     except Exception as e:
         db_service.update_run_status_failed(db, run_id, str(e))
     finally:

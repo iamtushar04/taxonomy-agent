@@ -6,6 +6,9 @@ import Login from './pages/Login';
 import DashboardSidebar from './components/DashboardSidebar';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import ExcelPreviewModal from './components/ExcelPreviewModal';
+import InlineChatView from './components/InlineChatView';
+import CollapsibleGraph from './components/CollapsibleGraph';
+import ChatDrawer from './components/ChatDrawer';
 import axiosClient from './api/axiosClient';
 
 import {
@@ -339,22 +342,20 @@ const MindmapNode = ({ id, data }) => {
 // --- EDITOR ---
 function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSidebar, setShowSidebar }) {
   const { logout, userName, userId } = useAuth();
-  const [patentInput, setPatentInput] = useState('');
   const [status, setStatus] = useState('idle');
-  const [showHelp, setShowHelp] = useState(true);
   const [currentRunName, setCurrentRunName] = useState('');
   const [activeTab, setActiveTab] = useState('graph');   // 'graph' | 'analytics'
   const [isPubmed, setIsPubmed] = useState(false);
   const [taxonomyData, setTaxonomyData] = useState([]);  // raw taxonomy array for analytics
   
-  // Product Documents Upload state
-  const [sessionUploadId, setSessionUploadId] = useState(null);
-  const [uploadedProductNames, setUploadedProductNames] = useState([]);
-  const [isUploadingDocs, setIsUploadingDocs] = useState(false);
+  // Graph collapse/expand state
+  const [isGraphMinimized, setIsGraphMinimized] = useState(false);
+  const [isGraphMaximized, setIsGraphMaximized] = useState(false);
+
+  // Excel Preview & Download
   const [excelPreviewData, setExcelPreviewData] = useState(null);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
-  const fileInputRef = useRef(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -363,6 +364,14 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
   // Undo/Redo State
   const history = useRef([]);
   const historyPointer = useRef(-1);
+
+  // Background pollers to track ongoing jobs across multiple sessions without cross-session bleeding
+  const runningPollersRef = useRef(new Map());
+  const currentRunIdRef = useRef(currentRunId);
+
+  useEffect(() => {
+    currentRunIdRef.current = currentRunId;
+  }, [currentRunId]);
 
   const saveHistory = useCallback((n, e) => {
     const newHistory = history.current.slice(0, historyPointer.current + 1);
@@ -386,97 +395,159 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setNodes, setEdges]);
 
-  // Handle switching runs from the sidebar
+  // Clean up all background intervals on unmount
   useEffect(() => {
-    if (currentRunId && status !== 'running') {
-      fetchGraph(currentRunId);
-    } else if (!currentRunId) {
-      // Clear the canvas when creating a new session
-      setNodes([]);
-      setEdges([]);
-      setStatus('idle');
-      setTaxonomyData([]);
-      setIsPubmed(false);
-      setActiveTab('graph');
-      history.current = [];
-      historyPointer.current = -1;
-    }
-  }, [currentRunId]);
+    return () => {
+      runningPollersRef.current.forEach(interval => clearInterval(interval));
+      runningPollersRef.current.clear();
+    };
+  }, []);
 
-  const nodeTypes = useMemo(() => ({ mindmap: MindmapNode }), []);
-
-  const handleProductFileUpload = async (e) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      formData.append('files', files[i]);
+  // Poll status for a given run ID safely in the background
+  const ensurePolling = useCallback((id) => {
+    if (!id) return;
+    if (runningPollersRef.current.has(id)) {
+      return; // Already polling this run
     }
 
-    setIsUploadingDocs(true);
-    try {
-      const res = await axiosClient.post('/api/products/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      setSessionUploadId(res.data.session_upload_id);
-      const names = (res.data.products || []).map(p => p.product_name || p.source_filename);
-      setUploadedProductNames(names);
-    } catch (err) {
-      console.error(err);
-      alert("Failed to upload product documents: " + (err.response?.data?.detail || err.message));
-    } finally {
-      setIsUploadingDocs(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleRunPipeline = async () => {
-    try {
-      if (currentRunId) {
-        setCurrentRunId(null);
-        setNodes([]);
-        setEdges([]);
-      }
-      setStatus('running');
-      const patentList = patentInput.split(',').map((id) => id.trim()).filter(Boolean);
-      const payload = {
-        patent_ids: patentList,
-        session_upload_id: sessionUploadId
-      };
-      const res = await axiosClient.post(`/api/build-taxonomy`, payload);
-      if (onRunComplete) onRunComplete(); // Trigger immediate refresh to show pending status in sidebar
-      pollStatus(res.data.run_id);
-    } catch (error) {
-      alert("Error starting pipeline: " + (error.response?.data?.detail || error.message));
-      setStatus('idle');
-    }
-  };
-
-  const pollStatus = async (id) => {
     const interval = setInterval(async () => {
       try {
         const res = await axiosClient.get(`/api/status/${id}`);
-        if (res.data.status === 'completed') {
+        const runStatus = res.data.status;
+
+        if (runStatus === 'completed') {
           clearInterval(interval);
-          setStatus('completed');
-          setCurrentRunId(id);
-          fetchGraph(id);
-          if (onRunComplete) onRunComplete(); // Trigger refresh to show completed status
-        } else if (res.data.status === 'failed') {
-          clearInterval(interval);
-          setStatus('idle');
+          runningPollersRef.current.delete(id);
           if (onRunComplete) onRunComplete();
-          alert("Pipeline failed: " + res.data.error);
+
+          // Only update UI if the user is currently viewing this exact session
+          if (currentRunIdRef.current === id) {
+            setStatus('completed');
+            setIsGraphMinimized(false);
+            setIsGraphMaximized(false);
+            fetchGraph(id);
+          }
+        } else if (runStatus === 'failed') {
+          clearInterval(interval);
+          runningPollersRef.current.delete(id);
+          if (onRunComplete) onRunComplete();
+
+          if (currentRunIdRef.current === id) {
+            setStatus('failed');
+            alert("Pipeline failed: " + (res.data.error || "Unknown error"));
+          }
         }
       } catch (e) {
         if (e.response && e.response.status === 404) {
           clearInterval(interval);
-          setStatus('idle');
-          console.warn("Pipeline interrupted (server restart or invalid ID).");
+          runningPollersRef.current.delete(id);
+          if (currentRunIdRef.current === id) {
+            setStatus('idle');
+          }
         }
       }
-    }, 5000);
+    }, 3000);
+
+    runningPollersRef.current.set(id, interval);
+  }, [onRunComplete]);
+
+  // Handle switching runs from the sidebar
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!currentRunId) {
+      setNodes([]);
+      setEdges([]);
+      setStatus('idle');
+      setCurrentRunName('');
+      setTaxonomyData([]);
+      setIsPubmed(false);
+      setActiveTab('graph');
+      setIsGraphMinimized(true);
+      setIsGraphMaximized(false);
+      history.current = [];
+      historyPointer.current = -1;
+      return;
+    }
+
+    // Existing or preparing run selected
+    const checkAndLoadRun = async () => {
+      try {
+        const statusRes = await axiosClient.get(`/api/status/${currentRunId}`);
+        if (isCancelled) return;
+        const runStatus = statusRes.data.status;
+
+        if (runStatus === 'running' || runStatus === 'pending') {
+          setStatus('running');
+          setNodes([]);
+          setEdges([]);
+          setTaxonomyData([]);
+          setIsGraphMinimized(false);
+          setIsGraphMaximized(false);
+          ensurePolling(currentRunId);
+        } else if (runStatus === 'completed') {
+          setStatus('completed');
+          setIsGraphMinimized(false);
+          setIsGraphMaximized(false);
+          fetchGraph(currentRunId);
+        } else if (runStatus === 'failed') {
+          setStatus('failed');
+          setNodes([]);
+          setEdges([]);
+          setTaxonomyData([]);
+          alert("Pipeline previously failed: " + (statusRes.data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        if (isCancelled) return;
+        console.error("Failed to check status for run", currentRunId, err);
+        fetchGraph(currentRunId);
+      }
+    };
+
+    checkAndLoadRun();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentRunId, ensurePolling]);
+
+  const nodeTypes = useMemo(() => ({ mindmap: MindmapNode }), []);
+
+  const handleStartPipeline = async (patentList, uploadId, contextGuidance, messagesList = [], mentalModelObj = null, productLinksList = []) => {
+    try {
+      setStatus('running');
+      setNodes([]);
+      setEdges([]);
+      setTaxonomyData([]);
+      setIsGraphMinimized(false);
+      setIsGraphMaximized(false);
+
+      const payload = {
+        patent_ids: patentList,
+        session_upload_id: uploadId,
+        product_urls: productLinksList && productLinksList.length > 0 ? productLinksList : undefined,
+        mental_model_context: contextGuidance,
+        messages: messagesList,
+        mental_model: mentalModelObj
+      };
+      const res = await axiosClient.post(`/api/build-taxonomy`, payload);
+      const newRunId = res.data.run_id;
+
+      // Clear new session draft since it's now an active run
+      sessionStorage.removeItem('tax_copilot_draft');
+
+      // Immediately activate the new run ID
+      setCurrentRunId(newRunId);
+
+      // Refresh sidebar to show the new run
+      if (onRunComplete) onRunComplete();
+
+      // Begin background polling
+      ensurePolling(newRunId);
+    } catch (error) {
+      alert("Error starting pipeline: " + (error.response?.data?.detail || error.message));
+      setStatus('idle');
+    }
   };
 
   const fetchGraph = async (id) => {
@@ -489,7 +560,6 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
       const productsMap = res.data.products_map || {};
       const patentsMeta = res.data.patents_meta || {};
       setTaxonomyData(taxonomyArray || []);
-      // Detect if all node IDs are numeric (PubMed) vs alphanumeric (patents)
       const hasPmids = taxonomyArray?.some(n => n.supporting_pmids?.length > 0);
       setIsPubmed(!!hasPmids);
 
@@ -536,12 +606,15 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
       const layouted = getLayoutedElements(initialNodes, initialEdges);
       setNodes(layouted.nodes);
       setEdges(layouted.edges);
+      setIsGraphMinimized(false);
       
       history.current = [{ nodes: layouted.nodes, edges: layouted.edges }];
       historyPointer.current = 0;
     } catch (error) {
       console.error("Failed to load graph", error);
-      alert("Failed to load the taxonomy graph. You might not have permission.");
+      if (error.response?.status !== 400) {
+        alert("Failed to load the taxonomy graph: " + (error.response?.data?.detail || error.message));
+      }
     }
   };
 
@@ -650,25 +723,35 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
-      <div style={{ padding: '10px 15px', background: '#fff', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', zIndex: 10, gap: 12 }}>
+      {/* Top Navbar */}
+      <div style={{
+        padding: '10px 16px',
+        background: '#1e293b',
+        borderBottom: '1px solid #334155',
+        display: 'flex',
+        alignItems: 'center',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+        zIndex: 20,
+        gap: 12
+      }}>
         {/* Sidebar toggle */}
         <button 
           onClick={() => setShowSidebar(!showSidebar)}
           title="Toggle Sidebar"
-          style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '20px', flexShrink: 0 }}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '18px', color: '#94a3b8', flexShrink: 0 }}
         >
           {showSidebar ? '◀' : '☰'}
         </button>
 
-        {/* Page title */}
-        <h3 style={{ margin: 0, fontSize: 15, whiteSpace: 'nowrap' }}>
-          {currentRunId ? 'Viewing Taxonomy' : 'Create New Taxonomy'}
+        {/* Page / Session title */}
+        <h3 style={{ margin: 0, fontSize: 15, whiteSpace: 'nowrap', color: '#f8fafc', fontWeight: 600 }}>
+          {currentRunId ? (currentRunName || `Taxonomy: ${currentRunId.slice(0, 8)}`) : 'New Taxonomy Workspace'}
         </h3>
 
-        {/* Tab switcher — only visible when a session is loaded */}
+        {/* Tab switcher — visible when a session is loaded */}
         {currentRunId && (
-          <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 8, padding: 3, gap: 2 }}>
-            {[['graph', '🌿 Graph'], ['analytics', '📊 Analytics']].map(([key, label]) => (
+          <div style={{ display: 'flex', background: '#0f172a', borderRadius: 8, padding: 3, gap: 2, border: '1px solid #334155' }}>
+            {[['graph', '🌿 Workspace & Chat'], ['analytics', '📊 Analytics']].map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
@@ -677,12 +760,12 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
                   border: 'none',
                   borderRadius: 6,
                   cursor: 'pointer',
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: 600,
                   transition: 'all 0.15s',
-                  background: activeTab === key ? '#fff' : 'transparent',
-                  color: activeTab === key ? '#1e293b' : '#64748b',
-                  boxShadow: activeTab === key ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
+                  background: activeTab === key ? '#0284c7' : 'transparent',
+                  color: activeTab === key ? '#ffffff' : '#94a3b8',
+                  boxShadow: activeTab === key ? '0 1px 4px rgba(0,0,0,0.2)' : 'none',
                 }}
               >
                 {label}
@@ -691,40 +774,28 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
           </div>
         )}
 
-        {/* Right side: preview + download + user + logout */}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {currentRunId && activeTab === 'graph' && (
-            <button 
-              onClick={handlePreviewExcel} 
-              disabled={isGeneratingPreview}
-              style={{ 
-                padding: '7px 16px', 
-                background: '#0284c7', 
-                color: 'white', 
-                border: 'none', 
-                borderRadius: '6px', 
-                cursor: isGeneratingPreview ? 'not-allowed' : 'pointer', 
-                fontWeight: 600, 
-                fontSize: 13,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                opacity: isGeneratingPreview ? 0.7 : 1
-              }}
-            >
-              <span>{isGeneratingPreview ? '⏳ Loading Preview...' : 'Preview Excel'}</span>
-            </button>
-          )}
-          <span style={{ fontSize: '13px', color: '#555', fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
-            <span style={{ marginRight: '6px', fontSize: '16px' }}>👤</span>
-            {userName || `User ${userId}`}
+        {/* Right side: user + logout */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '13px', color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>👤</span>
+            <span>{userName || `User ${userId}`}</span>
           </span>
           <button 
             onClick={logout} 
             title="Logout"
-            style={{ padding: '8px 10px', background: '#b91c1c', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            style={{
+              padding: '6px 10px',
+              background: '#ef4444',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+            }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
               <polyline points="16 17 21 12 16 7"></polyline>
               <line x1="21" y1="12" x2="9" y2="12"></line>
@@ -733,8 +804,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
         </div>
       </div>
 
-      <div style={{ flex: 1, background: '#fdfdfd', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
-
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', minHeight: 0, minWidth: 0 }}>
         {/* ── ANALYTICS TAB ─────────────────────────────────────────── */}
         {activeTab === 'analytics' && currentRunId && (
           <div style={{ flex: 1, background: '#0a0f1e', overflowY: 'auto', minHeight: 0, minWidth: 0, height: '100%' }}>
@@ -746,117 +816,90 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
           </div>
         )}
 
-        {/* ── GRAPH TAB ─────────────────────────────────────────────── */}
-        <div style={{ flex: 1, position: 'relative', display: activeTab === 'graph' ? 'flex' : 'none', flexDirection: 'column', minWidth: 0 }}>
-          {!currentRunId && status === 'idle' && (
-             <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', color: '#888', zIndex: 5 }}>
-                <div style={{ fontSize: '48px', marginBottom: '10px' }}>📊</div>
-                <h2>What would you like to build?</h2>
-                <p>Enter your Patent or PubMed IDs in the chat bar below.</p>
-             </div>
-          )}
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onEdgesDelete={onEdgesDelete}
-            fitView
-            minZoom={0.1}
-          >
-            <Panel position="bottom-center">
-              {showHelp ? (
-                <div style={{ position: 'relative', background: 'white', padding: '12px 30px 12px 15px', borderRadius: 8, border: '1px solid #ddd', fontSize: '13px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                    <button onClick={() => setShowHelp(false)} style={{ position: 'absolute', right: '5px', top: '5px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#888', fontWeight: 'bold' }}>✖</button>
-                    <b>Editable UI:</b> Hover over nodes for <b>[+]</b> and <b>[-]</b> buttons. Click nodes to collapse/expand. Press <b>Ctrl+Z</b> to Undo.<br/>
-                    <span style={{color: '#555', marginTop: '4px', display: 'inline-block'}}>
-                      <b>Assign node:</b> Drag a node's right handle to another node's left handle.<br/>
-                      <b>Delete edge:</b> Click on a connection line and press Backspace.
-                    </span>
-                </div>
-              ) : (
-                <button onClick={() => setShowHelp(true)} style={{ background: 'white', padding: '5px 10px', borderRadius: '8px', border: '1px solid #ddd', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                   ℹ️ Help
-                </button>
-              )}
-            </Panel>
-            <Controls />
-            <Background color="#eee" gap={20} size={1} />
-          </ReactFlow>
-        </div>
-      </div>
-
-      {/* ChatGPT Style Bottom Input Bar — only visible on Graph tab */}
-      {activeTab === 'graph' && (
-        <div style={{ padding: '16px 20px', background: 'white', borderTop: '1px solid #eaeaea', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 10 }}>
-          {/* Uploaded product files chip preview */}
-          {uploadedProductNames.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, width: '800px', maxWidth: '100%', marginBottom: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>Attached Products:</span>
-              {uploadedProductNames.map((name, i) => (
-                <span
-                  key={i}
-                  style={{
-                    background: '#ecfdf5',
-                    color: '#065f46',
-                    border: '1px solid #a7f3d0',
-                    borderRadius: 12,
-                    padding: '2px 8px',
-                    fontSize: 11,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4
-                  }}
-                >
-                  📦 {name.length > 28 ? name.slice(0, 28) + '…' : name}
-                </span>
-              ))}
-              <button
-                onClick={() => { setUploadedProductNames([]); setSessionUploadId(null); }}
-                style={{ background: 'transparent', border: 'none', color: '#dc2626', fontSize: 11, cursor: 'pointer', padding: 0 }}
-              >
-                Clear all ✕
-              </button>
+        {/* ── UNIFIED WORKSPACE (CONVERSATION + GRAPH) ─────────────────── */}
+        {activeTab === 'graph' && (
+          <div style={{ flex: 1, display: 'flex', minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
+            {/* Conversational Hub */}
+            <div style={{
+              flex: (!currentRunId || isGraphMinimized) ? '1 1 100%' : (isGraphMaximized ? '0 0 0' : '0 0 42%'),
+              width: isGraphMaximized ? 0 : ((!currentRunId || isGraphMinimized) ? '100%' : '42%'),
+              display: isGraphMaximized ? 'none' : 'flex',
+              flexDirection: 'column',
+              minWidth: 0,
+              height: '100%',
+              borderRight: (currentRunId && !isGraphMinimized && !isGraphMaximized) ? '1px solid #334155' : 'none',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              zIndex: 5
+            }}>
+              <InlineChatView
+                runId={currentRunId}
+                currentRunName={currentRunName}
+                status={status}
+                onStartPipeline={handleStartPipeline}
+                isGraphAvailable={!!currentRunId && (nodes.length > 0 || status === 'running')}
+                isGraphMinimized={isGraphMinimized}
+                onToggleGraphMinimize={() => {
+                  setIsGraphMinimized(prev => !prev);
+                  if (isGraphMaximized) setIsGraphMaximized(false);
+                }}
+                onOpenAnalytics={() => setActiveTab('analytics')}
+                onPreviewExcel={handlePreviewExcel}
+              />
             </div>
-          )}
 
-          <div style={{ display: 'flex', width: '800px', maxWidth: '100%', background: '#f4f4f4', borderRadius: '24px', padding: '8px 12px', alignItems: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.05)' }}>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleProductFileUpload}
-              style={{ display: 'none' }}
-              multiple
-              accept=".pdf,.docx,.xlsx,.xls,.csv,.txt"
-            />
-            <button 
-              title="Attach Product Documents (.pdf, .docx, .xlsx, .csv)"
-              disabled={isUploadingDocs || status === 'running'}
-              style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', color: uploadedProductNames.length > 0 ? '#10b981' : '#555', padding: '0 10px', display: 'flex', alignItems: 'center' }}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {isUploadingDocs ? '⏳' : (uploadedProductNames.length > 0 ? '📦' : '➕')}
-            </button>
-            <input 
-              type="text" 
-              value={patentInput} 
-              onChange={(e) => setPatentInput(e.target.value)} 
-              placeholder={uploadedProductNames.length > 0 ? "Enter Patent IDs to map with attached products..." : "Message Taxonomy AI or enter Patent / PubMed IDs..."}
-              style={{ flex: 1, background: 'transparent', border: 'none', padding: '10px', fontSize: '15px', outline: 'none' }}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleRunPipeline(); }}
-            />
-            <button 
-              onClick={handleRunPipeline} 
-              disabled={status === 'running' || isUploadingDocs} 
-              style={{ background: status === 'running' ? '#ccc' : '#000', color: 'white', border: 'none', borderRadius: '50%', width: '36px', height: '36px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}
-            >
-              {status === 'running' ? '⏳' : '↑'}
-            </button>
+            {/* Collapsible / Interactive Graph View */}
+            {currentRunId && !isGraphMinimized && (
+              <div style={{
+                flex: isGraphMaximized ? '1 1 100%' : '0 0 58%',
+                width: isGraphMaximized ? '100%' : '58%',
+                minWidth: 0,
+                display: 'flex',
+                height: '100%',
+                position: 'relative',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                zIndex: 4
+              }}>
+                <CollapsibleGraph
+                  nodes={nodes}
+                  edges={edges}
+                  nodeTypes={nodeTypes}
+                  onNodesChange={onNodesChange}
+                  onEdgesChange={onEdgesChange}
+                  onConnect={onConnect}
+                  onEdgesDelete={onEdgesDelete}
+                  currentRunName={currentRunName}
+                  runId={currentRunId}
+                  status={status}
+                  isMinimized={false}
+                  onToggleMinimize={() => setIsGraphMinimized(true)}
+                  isMaximized={isGraphMaximized}
+                  onToggleMaximize={() => setIsGraphMaximized(prev => !prev)}
+                  onPreviewExcel={handlePreviewExcel}
+                  isGeneratingPreview={isGeneratingPreview}
+                  onOpenAnalytics={() => setActiveTab('analytics')}
+                />
+              </div>
+            )}
+
+            {/* Minimized Graph Floating Status Pill */}
+            {currentRunId && isGraphMinimized && (
+              <CollapsibleGraph
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                currentRunName={currentRunName}
+                runId={currentRunId}
+                status={status}
+                isMinimized={true}
+                onToggleMinimize={() => {
+                  setIsGraphMinimized(false);
+                  setIsGraphMaximized(false);
+                }}
+              />
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Full-fidelity Excel Spreadsheet Preview Modal */}
       {excelPreviewData && (

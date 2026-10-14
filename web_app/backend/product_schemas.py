@@ -22,6 +22,9 @@ class ProductUploadResponse(BaseModel):
     products: List[ParsedProduct]
     errors: Optional[List[str]] = []
 
+class ProductUrlRequest(BaseModel):
+    urls: List[str]
+
 class ProductMappingRequest(BaseModel):
     run_id: str
     session_upload_id: Optional[str] = None

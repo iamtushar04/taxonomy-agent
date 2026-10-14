@@ -5,3 +5,10 @@ sqlalchemy
 psycopg2-binary
 PyJWT
 python-dotenv
+pdfplumber
+pypdf
+httpx
+beautifulsoup4
+python-docx
+pandas
+openpyxl

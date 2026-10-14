@@ -23,6 +23,23 @@ const DashboardSidebar = ({ currentRunId, onSelectRun, refreshTrigger }) => {
     fetchRuns();
   }, [refreshTrigger]);
 
+  // Periodic poll to refresh run statuses if any run is running or pending
+  useEffect(() => {
+    const hasRunning = runs.some(r => r.status === 'running' || r.status === 'pending');
+    if (!hasRunning) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await axiosClient.get('/api/runs');
+        setRuns(res.data.runs || []);
+      } catch (err) {
+        console.error("Failed to refresh runs status", err);
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [runs]);
+
   const handleEditSubmit = async (e, id) => {
     if (e.key === 'Enter') {
       try {

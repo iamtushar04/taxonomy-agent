@@ -57,7 +57,8 @@ def continue_to_extract_concepts(state: TaxonomyGenerationState):
                     "run_id": state.get("run_id", "default"),
                     "patent_id": p_id,
                     "text": p_data.get("full_text", ""),
-                    "is_product": False
+                    "is_product": False,
+                    "mental_model_context": state.get("mental_model_context")
                 }
             )
         )

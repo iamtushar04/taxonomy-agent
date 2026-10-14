@@ -6,10 +6,13 @@ from fastapi.middleware.cors import CORSMiddleware
 # pyrefly: ignore [missing-import]
 from database import engine, Base
 
-# Import the refactored router
+# Import modular package routers
 # pyrefly: ignore [missing-import]
-from routes.taxonomy_routes import router as api_router
-from routes.product_routes import router as product_router
+from routes.taxonomy import router as api_router
+# pyrefly: ignore [missing-import]
+from routes.products import router as product_router
+# pyrefly: ignore [missing-import]
+from routes.chat import router as chat_router
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -33,3 +36,6 @@ app.add_middleware(
 # Include all the API routes
 app.include_router(api_router)
 app.include_router(product_router)
+app.include_router(chat_router)
+
+# Reload trigger: 2026-10-14 19:18 IST - Multi-product carousel list attached in analyze_product

@@ -53,16 +53,26 @@ RULES:
 
         extracted = response_json.get("concepts", [])
 
-        concepts = [
-            Concept(
-                name=c["name"],
-                context=c.get("context", ""),
-                pmid=pmid,
-                domain_path=c.get("domain_path", [])
-            )
-            for c in extracted
-            if c.get("name")
-        ]
+        # Convert to our Pydantic Concept model losslessly
+        concepts = []
+        for c in extracted:
+            if not isinstance(c, dict):
+                continue
+            name = c.get("name")
+            if not name:
+                continue
+            try:
+                concepts.append(
+                    Concept(
+                        name=name,
+                        context=c.get("context", ""),
+                        pmid=pmid,
+                        domain_path=c.get("domain_path", [])
+                    )
+                )
+            except Exception as item_err:
+                print(f"Warning: could not parse concept in {pmid}: {item_err}")
+                continue
 
     except Exception as e:
         print(f"Failed to extract concepts for {pmid}: {e}")

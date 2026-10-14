@@ -25,7 +25,7 @@ RULES:
 3. For each concept, provide a "domain_path": a list of 2-4 technology ancestry levels that places this concept in the engineering/scientific taxonomy (e.g. ["Biotechnology", "Peptide Therapeutics", "Formulation"]).
 4. Output a JSON object with:
    - "reasoning": a 1-2 sentence explanation of the technical domain of this commercial product
-   - "concepts": a list of objects, each with "name", "context", and "domain_path"
+   - "concepts": a list of objects, each with "name" (string), "context" (plain text string describing the feature or parameter values; do NOT output a nested dictionary), and "domain_path" (list of strings)
 """
         user_prompt = f"Extract the key technical features and architectural concepts from this product document:\n\n{text[:60000]}"
     else:
@@ -70,6 +70,10 @@ RULES:
 """
         user_prompt = f"Extract the key technical concepts from the following patent text:\n\n{text[:60000]}"
 
+    mental_model_context = payload.get("mental_model_context")
+    if mental_model_context:
+        system_prompt += f"\n\nPRODUCT FOCUS GUIDANCE:\nPrioritize technical concepts and hierarchy pathways that relate to this product focus:\n{mental_model_context}\n"
+
     try:
         response_json = chat_json(
             messages=[
@@ -82,17 +86,26 @@ RULES:
 
         extracted = response_json.get("concepts", [])
 
-        # Convert to our Pydantic Concept model
-        concepts = [
-            Concept(
-                name=c["name"],
-                context=c.get("context", ""),
-                patent_id=patent_id,
-                domain_path=c.get("domain_path", [])
-            )
-            for c in extracted
-            if c.get("name")
-        ]
+        # Convert to our Pydantic Concept model losslessly
+        concepts = []
+        for c in extracted:
+            if not isinstance(c, dict):
+                continue
+            name = c.get("name")
+            if not name:
+                continue
+            try:
+                concepts.append(
+                    Concept(
+                        name=name,
+                        context=c.get("context", ""),
+                        patent_id=patent_id,
+                        domain_path=c.get("domain_path", [])
+                    )
+                )
+            except Exception as item_err:
+                print(f"Warning: could not parse concept in {patent_id}: {item_err}")
+                continue
 
     except Exception as e:
         print(f"Failed to extract concepts for {patent_id}: {e}")

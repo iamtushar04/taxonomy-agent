@@ -2,18 +2,16 @@ import uuid
 from typing import List
 # pyrefly: ignore [missing-import]
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+
 # pyrefly: ignore [missing-import]
 from core.security import get_current_user
 # pyrefly: ignore [missing-import]
-from product_schemas import ProductUploadResponse, ParsedProduct
+from product_schemas import ProductUploadResponse
 # pyrefly: ignore [missing-import]
 from services.product_service import ProductDocumentService
+from .cache import _UPLOAD_CACHE
 
-router = APIRouter(prefix="/api/products", tags=["Product Ingestion"])
-
-# Temporary in-memory cache for uploaded products keyed by session_upload_id
-# (Keeps files lightweight and avoids dirtying the DB until a run is created)
-_UPLOAD_CACHE = {}
+router = APIRouter()
 
 @router.post("/upload", response_model=ProductUploadResponse)
 async def upload_product_documents(
@@ -59,13 +57,3 @@ async def upload_product_documents(
         products=extracted_products,
         errors=errors
     )
-
-@router.get("/session/{session_upload_id}", response_model=List[ParsedProduct])
-async def get_session_products(
-    session_upload_id: str,
-    current_user_id: int = Depends(get_current_user)
-):
-    """Retrieve already parsed products for a session upload ID."""
-    if session_upload_id not in _UPLOAD_CACHE:
-        raise HTTPException(status_code=404, detail="Upload session expired or not found.")
-    return _UPLOAD_CACHE[session_upload_id]

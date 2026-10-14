@@ -3,8 +3,41 @@ State definitions for the Taxonomy Builder LangGraph pipeline.
 """
 
 import operator
+import json
 from typing import Annotated, Any, TypedDict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+def format_any_to_string(v: Any) -> str:
+    """
+    Losslessly and dynamically converts any datatype (dict, list, int, float, bool, set, tuple, etc.)
+    into a clean, human-readable string without losing any key or parameter values.
+    """
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v.strip()
+    if isinstance(v, (int, float, bool)):
+        return str(v)
+    if isinstance(v, set):
+        v = list(v)
+    if isinstance(v, dict):
+        # If all values are simple primitives, create a clean key-value string
+        if all(not isinstance(val, (dict, list, set, tuple)) for val in v.values()):
+            return ", ".join(f"{k}: {val}" for k, val in v.items())
+        # For complex/nested dictionaries, serialize to JSON to guarantee 100% data retention
+        try:
+            return json.dumps(v, ensure_ascii=False)
+        except Exception:
+            return str(v)
+    if isinstance(v, (list, tuple)):
+        # If list of simple primitives, join with commas
+        if all(not isinstance(val, (dict, list, set, tuple)) for val in v):
+            return ", ".join(str(item) for item in v)
+        try:
+            return json.dumps(v, ensure_ascii=False)
+        except Exception:
+            return str(v)
+    return str(v)
 
 # ---------------------------------------------------------------------------
 # Map Phase Schemas (Extracting Concepts per Patent)
@@ -19,6 +52,48 @@ class Concept(BaseModel):
         description="Technology ancestry path extracted from patent text (e.g. ['Automotive', 'Electric Vehicle', 'Battery Management']). Used to ground the hierarchy."
     )
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v: Any) -> str:
+        if v is None:
+            return "Unnamed Concept"
+        if isinstance(v, str):
+            clean = v.strip()
+            return clean if clean else "Unnamed Concept"
+        if isinstance(v, dict):
+            for k in ["name", "concept", "title", "feature", "parameter"]:
+                if k in v and v[k]:
+                    return str(v[k]).strip()
+            return ", ".join(f"{k}: {val}" for k, val in v.items() if not isinstance(val, (dict, list)))
+        if isinstance(v, (list, tuple, set)):
+            return " / ".join(str(x) for x in v if x)
+        return str(v).strip()
+
+    @field_validator("context", mode="before")
+    @classmethod
+    def normalize_context(cls, v: Any) -> str:
+        return format_any_to_string(v)
+
+    @field_validator("patent_id", mode="before")
+    @classmethod
+    def normalize_patent_id(cls, v: Any) -> str:
+        return str(v).strip() if v is not None else ""
+
+    @field_validator("domain_path", mode="before")
+    @classmethod
+    def normalize_domain_path(cls, v: Any) -> list[str]:
+        if isinstance(v, list):
+            paths = []
+            for item in v:
+                if isinstance(item, list):
+                    paths.extend([str(x).strip() for x in item if x])
+                elif item:
+                    paths.append(str(item).strip())
+            return paths
+        if isinstance(v, str):
+            return [p.strip() for p in v.replace("->", "/").split("/") if p.strip()]
+        return []
+
 class ConceptList(BaseModel):
     concepts: list[Concept]
 
@@ -31,6 +106,26 @@ class CanonicalConcept(BaseModel):
         default_factory=list,
         description="Aggregated domain ancestry paths from all raw concepts in this cluster (e.g. [['Materials Science', 'Polymers', 'Mechanical Properties'], ...]). Used to ground the hierarchy backbone."
     )
+
+    @field_validator("supporting_contexts", mode="before")
+    @classmethod
+    def normalize_supporting_contexts(cls, v: Any) -> list[str]:
+        if not isinstance(v, list):
+            return [format_any_to_string(v)] if v else []
+        return [format_any_to_string(item) for item in v if item is not None]
+
+    @field_validator("contexts_by_patent", mode="before")
+    @classmethod
+    def normalize_contexts_by_patent(cls, v: Any) -> dict[str, list[str]]:
+        if not isinstance(v, dict):
+            return {}
+        result = {}
+        for pid, ctxs in v.items():
+            if isinstance(ctxs, list):
+                result[str(pid)] = [format_any_to_string(c) for c in ctxs if c is not None]
+            else:
+                result[str(pid)] = [format_any_to_string(ctxs)]
+        return result
 
 # ---------------------------------------------------------------------------
 # Reduce Phase Schemas (Grouping & Hierarchy)

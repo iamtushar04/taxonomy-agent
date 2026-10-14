@@ -4,6 +4,11 @@ from pydantic import BaseModel
 class PatentRequest(BaseModel):
     patent_ids: List[str]
     session_upload_id: Optional[str] = None
+    product_urls: Optional[List[str]] = None
+    mental_model_context: Optional[str] = None
+    instructions: Optional[str] = None
+    messages: Optional[List[dict]] = None
+    mental_model: Optional[dict] = None
 
 class GraphEdge(BaseModel):
     source: str
