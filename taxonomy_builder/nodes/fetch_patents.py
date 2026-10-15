@@ -14,6 +14,13 @@ def fetch_patents(state: TaxonomyGenerationState) -> dict:
     Combines abstract, claims, and description into full_text.
     """
     print("--- FETCHING PATENTS ---")
+    run_id = state.get("run_id", "default")
+    try:
+        # pyrefly: ignore [missing-import]
+        from services.run_stage_service import set_run_stage
+        set_run_stage(run_id, "fetching")
+    except Exception:
+        pass
     patent_ids = state.get("patent_ids", [])
     
     api_key = os.environ.get("WISSEN_API_KEY", "")

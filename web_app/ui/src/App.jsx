@@ -340,7 +340,7 @@ const MindmapNode = ({ id, data }) => {
 };
 
 // --- EDITOR ---
-function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSidebar, setShowSidebar }) {
+function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimisticRun, showSidebar, setShowSidebar }) {
   const { logout, userName, userId } = useAuth();
   const [status, setStatus] = useState('idle');
   const [currentRunName, setCurrentRunName] = useState('');
@@ -398,6 +398,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
   // Background pollers to track ongoing jobs across multiple sessions without cross-session bleeding
   const runningPollersRef = useRef(new Map());
   const currentRunIdRef = useRef(currentRunId);
+  const [runStage, setRunStage] = useState(null);
 
   useEffect(() => {
     currentRunIdRef.current = currentRunId;
@@ -445,6 +446,17 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
         const res = await axiosClient.get(`/api/status/${id}`);
         const runStatus = res.data.status;
 
+        // Live verification & pipeline stage tracking
+        if (currentRunIdRef.current === id && res.data.stage) {
+          setRunStage({
+            stage: res.data.stage,
+            title: res.data.stage_title,
+            description: res.data.stage_description,
+            step: res.data.step || 1,
+            totalSteps: res.data.total_steps || 5
+          });
+        }
+
         if (runStatus === 'completed') {
           clearInterval(interval);
           runningPollersRef.current.delete(id);
@@ -452,6 +464,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
 
           // Only update UI if the user is currently viewing this exact session
           if (currentRunIdRef.current === id) {
+            setRunStage(null);
             setStatus('completed');
             setIsGraphMinimized(false);
             setIsGraphMaximized(false);
@@ -463,6 +476,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
           if (onRunComplete) onRunComplete();
 
           if (currentRunIdRef.current === id) {
+            setRunStage(null);
             setStatus('failed');
             alert("Pipeline failed: " + (res.data.error || "Unknown error"));
           }
@@ -544,6 +558,27 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
   const nodeTypes = useMemo(() => ({ mindmap: MindmapNode }), []);
 
   const handleStartPipeline = async (patentList, uploadId, contextGuidance, messagesList = [], mentalModelObj = null, productLinksList = []) => {
+    // 1. Generate unique 8-character run ID on the client immediately at 0ms!
+    const immediateRunId = (typeof crypto !== 'undefined' && crypto.randomUUID) 
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 8) 
+      : Math.random().toString(36).substring(2, 10);
+
+    const isPubmed = patentList && patentList.some(pid => /^\d+$/.test(pid.trim()));
+    const initialName = patentList && patentList.length > 0 
+      ? `${isPubmed ? 'PubMed' : 'Patent'} Graph (${patentList.length} items)`
+      : 'Patent Graph';
+
+    const optimisticSession = {
+      id: immediateRunId,
+      name: initialName,
+      status: 'running',
+      created_at: new Date().toISOString()
+    };
+
+    // 2. Immediately create and display the session at the left sidebar at the moment of the request!
+    setCurrentRunId(immediateRunId);
+    if (onOptimisticRun) onOptimisticRun(optimisticSession);
+
     try {
       setStatus('running');
       setNodes([]);
@@ -553,6 +588,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
       setIsGraphMaximized(false);
 
       const payload = {
+        run_id: immediateRunId,
         patent_ids: patentList,
         session_upload_id: uploadId,
         product_urls: productLinksList && productLinksList.length > 0 ? productLinksList : undefined,
@@ -561,15 +597,17 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
         mental_model: mentalModelObj
       };
       const res = await axiosClient.post(`/api/build-taxonomy`, payload);
-      const newRunId = res.data.run_id;
+      const newRunId = res.data.run_id || immediateRunId;
 
       // Clear new session draft since it's now an active run
       sessionStorage.removeItem('tax_copilot_draft');
 
-      // Immediately activate the new run ID
-      setCurrentRunId(newRunId);
+      // Immediately activate the new run ID if different
+      if (newRunId !== immediateRunId) {
+        setCurrentRunId(newRunId);
+      }
 
-      // Refresh sidebar to show the new run
+      // Refresh sidebar to sync with backend DB
       if (onRunComplete) onRunComplete();
 
       // Begin background polling
@@ -577,6 +615,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
     } catch (error) {
       alert("Error starting pipeline: " + (error.response?.data?.detail || error.message));
       setStatus('idle');
+      if (onOptimisticRun) onOptimisticRun({ id: immediateRunId, status: 'failed' });
     }
   };
 
@@ -913,6 +952,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
                 }}
                 onOpenAnalytics={() => setActiveTab('analytics')}
                 onPreviewExcel={handlePreviewExcel}
+                runStage={runStage}
               />
             </div>
 
@@ -984,6 +1024,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
                   onPreviewExcel={handlePreviewExcel}
                   isGeneratingPreview={isGeneratingPreview}
                   onOpenAnalytics={() => setActiveTab('analytics')}
+                  runStage={runStage}
                 />
               </div>
             )}
@@ -1026,15 +1067,24 @@ function AppLayout() {
   const [currentRunId, setCurrentRunId] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [optimisticRun, setOptimisticRun] = useState(null);
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
-      {showSidebar && <DashboardSidebar currentRunId={currentRunId} onSelectRun={setCurrentRunId} refreshTrigger={refreshTrigger} />}
+      {showSidebar && (
+        <DashboardSidebar 
+          currentRunId={currentRunId} 
+          onSelectRun={setCurrentRunId} 
+          refreshTrigger={refreshTrigger} 
+          optimisticRun={optimisticRun}
+        />
+      )}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
         <TaxonomyEditor 
           currentRunId={currentRunId} 
           setCurrentRunId={setCurrentRunId} 
           onRunComplete={() => setRefreshTrigger(prev => prev + 1)} 
+          onOptimisticRun={setOptimisticRun}
           showSidebar={showSidebar}
           setShowSidebar={setShowSidebar}
         />

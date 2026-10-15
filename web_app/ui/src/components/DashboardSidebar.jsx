@@ -1,18 +1,40 @@
 import React, { useEffect, useState } from 'react';
 import axiosClient from '../api/axiosClient';
 
-const DashboardSidebar = ({ currentRunId, onSelectRun, refreshTrigger }) => {
+const DashboardSidebar = ({ currentRunId, onSelectRun, refreshTrigger, optimisticRun }) => {
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
 
+  // Instant optimistic session insertion at 0ms
+  useEffect(() => {
+    if (!optimisticRun || !optimisticRun.id) return;
+    setRuns(prev => {
+      const idx = prev.findIndex(r => r.id === optimisticRun.id);
+      if (idx !== -1) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], ...optimisticRun };
+        return copy;
+      }
+      return [optimisticRun, ...prev];
+    });
+  }, [optimisticRun]);
+
   useEffect(() => {
     const fetchRuns = async () => {
       try {
-        setLoading(true);
+        // Only show full loading state on first cold boot when no runs exist yet
+        if (runs.length === 0) setLoading(true);
         const res = await axiosClient.get('/api/runs');
-        setRuns(res.data.runs || []);
+        const fetched = res.data.runs || [];
+        setRuns(prev => {
+          // If optimisticRun exists and is not yet in fetched runs, keep it prepended
+          if (optimisticRun && optimisticRun.id && !fetched.some(r => r.id === optimisticRun.id)) {
+            return [optimisticRun, ...fetched];
+          }
+          return fetched;
+        });
       } catch (err) {
         console.error("Failed to fetch runs history", err);
       } finally {
@@ -21,7 +43,7 @@ const DashboardSidebar = ({ currentRunId, onSelectRun, refreshTrigger }) => {
     };
 
     fetchRuns();
-  }, [refreshTrigger]);
+  }, [refreshTrigger, optimisticRun]);
 
   // Periodic poll to refresh run statuses if any run is running or pending
   useEffect(() => {
@@ -31,14 +53,20 @@ const DashboardSidebar = ({ currentRunId, onSelectRun, refreshTrigger }) => {
     const interval = setInterval(async () => {
       try {
         const res = await axiosClient.get('/api/runs');
-        setRuns(res.data.runs || []);
+        const fetched = res.data.runs || [];
+        setRuns(prev => {
+          if (optimisticRun && optimisticRun.id && !fetched.some(r => r.id === optimisticRun.id)) {
+            return [optimisticRun, ...fetched];
+          }
+          return fetched;
+        });
       } catch (err) {
         console.error("Failed to refresh runs status", err);
       }
     }, 4000);
 
     return () => clearInterval(interval);
-  }, [runs]);
+  }, [runs, optimisticRun]);
 
   const handleEditSubmit = async (e, id) => {
     if (e.key === 'Enter') {
@@ -158,8 +186,22 @@ const DashboardSidebar = ({ currentRunId, onSelectRun, refreshTrigger }) => {
               <div style={{ fontSize: '12px', color: '#bdc3c7', display: 'flex', justifyContent: 'space-between' }}>
                 <span>ID: {run.id}</span>
                 <span style={{ 
-                  color: run.status === 'completed' ? '#2ecc71' : run.status === 'failed' ? '#e74c3c' : '#f1c40f'
+                  color: run.status === 'completed' ? '#2ecc71' : run.status === 'failed' ? '#e74c3c' : '#f1c40f',
+                  fontWeight: run.status === 'running' || run.status === 'pending' ? 'bold' : 'normal',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px'
                 }}>
+                  {(run.status === 'running' || run.status === 'pending') && (
+                    <span style={{
+                      display: 'inline-block',
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      backgroundColor: '#f1c40f',
+                      boxShadow: '0 0 6px #f1c40f'
+                    }} />
+                  )}
                   {run.status}
                 </span>
               </div>

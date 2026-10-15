@@ -2,6 +2,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 class PatentRequest(BaseModel):
+    run_id: Optional[str] = None
     patent_ids: List[str]
     session_upload_id: Optional[str] = None
     product_urls: Optional[List[str]] = None

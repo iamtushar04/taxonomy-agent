@@ -13,7 +13,8 @@ export default function InlineChatView({
   isGraphMinimized,
   onToggleGraphMinimize,
   onOpenAnalytics,
-  onPreviewExcel
+  onPreviewExcel,
+  runStage = null
 }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -30,6 +31,12 @@ export default function InlineChatView({
   
   const messagesEndRef = useRef(null);
   const prevRunIdRef = useRef(null);
+  const messagesRef = useRef(messages);
+  const isSubmittingPipelineRef = useRef(false);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -261,6 +268,9 @@ export default function InlineChatView({
 
   // Trigger building taxonomy with extracted mental model and patents
   const handleTriggerBuild = async (overridePatentIds = null, overrideLinks = null) => {
+    if (isSubmittingPipelineRef.current) return;
+    isSubmittingPipelineRef.current = true;
+
     const idsToUse = overridePatentIds || patentIds;
     if (!idsToUse || idsToUse.length === 0) {
       const promptMsg = {
@@ -270,6 +280,7 @@ export default function InlineChatView({
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setMessages(prev => [...prev, promptMsg]);
+      isSubmittingPipelineRef.current = false;
       return;
     }
 
@@ -373,28 +384,36 @@ export default function InlineChatView({
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    setMessages(prev => {
-      const updatedMessages = [...prev, startMsg];
-      const serializableMessages = updatedMessages.map(m => ({
-        role: m.role || 'user',
-        content: m.content || '',
-        intent: m.intent || null,
-        metadata: {
-          ...(m.metadata || {}),
-          isProductCard: !!m.isProductCard,
-          mentalModel: m.mentalModel || (m.isProductCard ? activeMentalModel : null)
-        },
-        timestamp: m.timestamp || new Date().toISOString()
-      }));
+    // Safely snapshot messages using ref to avoid React StrictMode duplicate updater triggers
+    const currentMsgs = messagesRef.current || messages;
+    const updatedMessages = [...currentMsgs, startMsg];
+    const serializableMessages = updatedMessages.map(m => ({
+      role: m.role || 'user',
+      content: m.content || '',
+      intent: m.intent || null,
+      metadata: {
+        ...(m.metadata || {}),
+        isProductCard: !!m.isProductCard,
+        mentalModel: m.mentalModel || (m.isProductCard ? activeMentalModel : null)
+      },
+      timestamp: m.timestamp || new Date().toISOString()
+    }));
 
-      onStartPipeline(idsToUse, activeUploadId, contextGuidance, serializableMessages, activeMentalModel, linksToUse);
-      return updatedMessages;
-    });
+    setMessages(updatedMessages);
 
     setPatentIds([]);
     setUploadedProducts([]);
     setProductLinks([]);
     setCustomInstructions('');
+
+    try {
+      // Execute the pipeline trigger strictly outside setMessages so React 18 cannot invoke it twice
+      await onStartPipeline(idsToUse, activeUploadId, contextGuidance, serializableMessages, activeMentalModel, linksToUse);
+    } finally {
+      setTimeout(() => {
+        isSubmittingPipelineRef.current = false;
+      }, 2000);
+    }
   };
 
   // Send conversational message
@@ -742,10 +761,16 @@ export default function InlineChatView({
         {status === 'running' && (
           <div style={{
             padding: 16,
-            background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-            border: '1px solid #0284c7',
+            background: runStage?.stage === 'auditing_hierarchy'
+              ? 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)'
+              : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+            border: runStage?.stage === 'auditing_hierarchy'
+              ? '1px solid #818cf8'
+              : '1px solid #0284c7',
             borderRadius: 12,
-            boxShadow: '0 4px 16px rgba(2, 132, 199, 0.2)',
+            boxShadow: runStage?.stage === 'auditing_hierarchy'
+              ? '0 4px 16px rgba(129, 140, 248, 0.25)'
+              : '0 4px 16px rgba(2, 132, 199, 0.2)',
             display: 'flex',
             alignItems: 'center',
             gap: 14
@@ -754,16 +779,30 @@ export default function InlineChatView({
               width: 36,
               height: 36,
               borderRadius: '50%',
-              border: '3px solid #38bdf8',
+              border: `3px solid ${runStage?.stage === 'auditing_hierarchy' ? '#818cf8' : '#38bdf8'}`,
               borderTopColor: 'transparent',
               animation: 'spin 1s linear infinite'
             }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#38bdf8' }}>
-                Building Taxonomy Pipeline...
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: runStage?.stage === 'auditing_hierarchy' ? '#a5b4fc' : '#38bdf8' }}>
+                  {runStage?.title || "Building Taxonomy Pipeline..."}
+                </span>
+                {runStage?.step && (
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: 10,
+                    background: runStage?.stage === 'auditing_hierarchy' ? '#4338ca' : '#0369a1',
+                    color: '#ffffff'
+                  }}>
+                    Step {runStage.step} of {runStage.totalSteps || 5}
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                Extracting technical concepts, clustering branches, and mapping claims against your product model.
+                {runStage?.description || "Extracting technical concepts, clustering branches, and mapping claims against your product model."}
               </div>
             </div>
           </div>

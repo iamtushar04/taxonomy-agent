@@ -25,7 +25,8 @@ export default function CollapsibleGraph({
   onPreviewExcel,
   isGeneratingPreview,
   onOpenAnalytics,
-  status = 'completed'
+  status = 'completed',
+  runStage = null
 }) {
   const [showHelp, setShowHelp] = useState(false);
 
@@ -242,18 +243,97 @@ export default function CollapsibleGraph({
               width: 56,
               height: 56,
               borderRadius: '50%',
-              border: '4px solid #0284c7',
-              borderTopColor: '#38bdf8',
+              border: `4px solid ${runStage?.stage === 'auditing_hierarchy' ? '#6366f1' : '#0284c7'}`,
+              borderTopColor: runStage?.stage === 'auditing_hierarchy' ? '#a5b4fc' : '#38bdf8',
               animation: 'spin 1s linear infinite',
-              marginBottom: 20,
-              boxShadow: '0 0 24px rgba(56, 189, 248, 0.3)'
+              marginBottom: 18,
+              boxShadow: runStage?.stage === 'auditing_hierarchy'
+                ? '0 0 28px rgba(99, 102, 241, 0.45)'
+                : '0 0 24px rgba(56, 189, 248, 0.3)'
             }} />
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#f8fafc', marginBottom: 8 }}>
-              Preparing Taxonomy Graph...
+
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#f8fafc', marginBottom: 6 }}>
+              {runStage?.title || "Preparing Taxonomy Graph..."}
             </div>
-            <div style={{ fontSize: 13, color: '#94a3b8', maxWidth: 440, lineHeight: 1.6, marginBottom: 16 }}>
-              Extracting hierarchical patent concepts, clustering technology branches, and mapping claims against your commercial product model.
+
+            <div style={{ fontSize: 13, color: '#94a3b8', maxWidth: 480, lineHeight: 1.6, marginBottom: 20 }}>
+              {runStage?.description || "Extracting hierarchical patent concepts, clustering technology branches, and mapping claims against your commercial product model."}
             </div>
+
+            {/* Real-time Verification Callout */}
+            {runStage?.stage === 'auditing_hierarchy' && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '10px 20px',
+                borderRadius: 24,
+                background: 'rgba(99, 102, 241, 0.15)',
+                border: '1px solid #6366f1',
+                fontSize: 13,
+                color: '#c7d2fe',
+                marginBottom: 20,
+                boxShadow: '0 0 20px rgba(99, 102, 241, 0.25)'
+              }}>
+                <span style={{ fontSize: 16 }}>🔍</span>
+                <span style={{ fontWeight: 600 }}>AI Auditor is verifying root, parent, child, and leaf node placements</span>
+              </div>
+            )}
+
+            {/* Stepper Progress Bar */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 22,
+              background: '#1e293b',
+              padding: '10px 18px',
+              borderRadius: 30,
+              border: '1px solid #334155'
+            }}>
+              {[
+                { num: 1, label: 'Fetch' },
+                { num: 2, label: 'Extract' },
+                { num: 3, label: 'Cluster' },
+                { num: 4, label: 'AI Audit' },
+                { num: 5, label: 'Render' },
+              ].map(s => {
+                const currentStep = runStage?.step || 1;
+                const isDone = s.num < currentStep;
+                const isCurrent = s.num === currentStep;
+                return (
+                  <div key={s.num} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: '50%',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: isDone ? '#22c55e' : isCurrent ? (s.num === 4 ? '#6366f1' : '#38bdf8') : '#334155',
+                      color: isDone || isCurrent ? '#ffffff' : '#94a3b8',
+                      boxShadow: isCurrent ? `0 0 12px ${s.num === 4 ? 'rgba(99, 102, 241, 0.7)' : 'rgba(56, 189, 248, 0.7)'}` : 'none',
+                      transition: 'all 0.3s'
+                    }}>
+                      {isDone ? '✓' : s.num}
+                    </div>
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: isCurrent ? 700 : 500,
+                      color: isCurrent ? (s.num === 4 ? '#a5b4fc' : '#38bdf8') : isDone ? '#cbd5e1' : '#64748b'
+                    }}>
+                      {s.label}
+                    </span>
+                    {s.num < 5 && (
+                      <span style={{ color: '#475569', fontSize: 10, margin: '0 2px' }}>→</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
             <div style={{
               display: 'inline-flex',
               alignItems: 'center',

@@ -167,6 +167,12 @@ def format_taxonomy(state: TaxonomyGenerationState) -> dict:
     final_taxonomy = state.get("final_taxonomy", [])
     draft_tree = state.get("draft_tree", {})
     run_id = state.get("run_id", "default")
+    try:
+        # pyrefly: ignore [missing-import]
+        from services.run_stage_service import set_run_stage
+        set_run_stage(run_id, "finalizing")
+    except Exception:
+        pass
     
     # 1. Write the JSON to data/
     json_path = r"c:\Users\Vipul\Desktop\taxonomies_agent\data\draft_taxonomy.json"

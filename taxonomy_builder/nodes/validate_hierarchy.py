@@ -52,19 +52,34 @@ def _consolidate_tiny_branches(tree: dict) -> dict:
     if not branch_counts:
         return tree
 
-    max_branch = max(branch_counts, key=branch_counts.get)
-    max_count = branch_counts[max_branch]
+    # Identify dominant real technical domain (exclude 'Uncategorized')
+    real_branches = {k: v for k, v in branch_counts.items() if k.lower() != "uncategorized"}
+    if not real_branches:
+        return tree
 
+    dominant_branch = max(real_branches, key=real_branches.get)
+    dominant_count = real_branches[dominant_branch]
+
+    # If Uncategorized exists, fold its contents into the dominant technical domain
+    if "Uncategorized" in tech_root and dominant_branch != "Uncategorized":
+        uncat_content = tech_root["Uncategorized"]
+        if isinstance(uncat_content, dict):
+            for sub_k, sub_v in uncat_content.items():
+                tech_root[dominant_branch][sub_k] = sub_v
+            print(f"Consolidation: folded 'Uncategorized' ({len(uncat_content)} items) into dominant domain '{dominant_branch}'.")
+        del tech_root["Uncategorized"]
+
+    # Consolidate tiny branches (<= 2 nodes) into dominant branch
     keys_to_merge = []
-    for branch_name, count in branch_counts.items():
-        if branch_name != max_branch and count <= 2 and max_count >= 6:
+    for branch_name, count in real_branches.items():
+        if branch_name != dominant_branch and count <= 2 and dominant_count >= 6:
             keys_to_merge.append(branch_name)
 
     for k in keys_to_merge:
-        print(f"Consolidation: merging lone branch '{k}' ({branch_counts[k]} node(s)) into dominant branch '{max_branch}' ({max_count} nodes)...")
+        print(f"Consolidation: merging lone branch '{k}' ({real_branches[k]} node(s)) into dominant branch '{dominant_branch}' ({dominant_count} nodes)...")
         content = tech_root[k]
         if isinstance(content, dict):
-            tech_root[max_branch][k] = content
+            tech_root[dominant_branch][k] = content
         del tech_root[k]
 
     return tree

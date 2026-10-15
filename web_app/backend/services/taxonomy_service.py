@@ -162,6 +162,12 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str], session_upload_id:
     except Exception as e:
         db_service.update_run_status_failed(db, run_id, str(e))
     finally:
+        try:
+            # pyrefly: ignore [missing-import]
+            from services.run_stage_service import clear_run_stage
+            clear_run_stage(run_id)
+        except Exception:
+            pass
         db.close()
 
 

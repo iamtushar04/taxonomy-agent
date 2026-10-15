@@ -23,11 +23,14 @@ async def build_taxonomy(
     if not request.patent_ids:
         raise HTTPException(status_code=400, detail="Must provide at least one patent ID.")
     
-    # Ensure the 8-character ID is perfectly unique in the database
-    while True:
-        run_id = str(uuid.uuid4())[:8]
-        if db_service.is_run_id_unique(db, run_id):
-            break
+    # Use client-provided run_id if unique, or generate a fresh unique 8-character ID
+    if request.run_id and db_service.is_run_id_unique(db, request.run_id):
+        run_id = request.run_id
+    else:
+        while True:
+            run_id = str(uuid.uuid4())[:8]
+            if db_service.is_run_id_unique(db, run_id):
+                break
     
     db_service.create_new_run(db, run_id, request.patent_ids, current_user_id)
     

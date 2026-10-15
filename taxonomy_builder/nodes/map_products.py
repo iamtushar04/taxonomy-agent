@@ -32,7 +32,7 @@ def map_products(state: TaxonomyGenerationState) -> dict:
                 "node_id": n.get("node_id"),
                 "name": n.get("name"),
                 "level": n.get("level"),
-                "description": n.get("description", "")
+                "description": (n.get("description") or "")[:120]
             })
 
         # Prepare compact product features summary
@@ -42,7 +42,7 @@ def map_products(state: TaxonomyGenerationState) -> dict:
                 "product_id": p_id,
                 "product_name": p_info.get("product_name"),
                 "features": p_info.get("features", [])[:8],
-                "summary": p_info.get("full_text_snippet", "")[:300]
+                "summary": (p_info.get("full_text_snippet") or "")[:250]
             })
 
         system_prompt = (
@@ -51,7 +51,8 @@ def map_products(state: TaxonomyGenerationState) -> dict:
             "MATCHING CRITERIA:\n"
             "1. Map a product to a node if the product's documented features, technical mechanism, or domain subject matter clearly relates to that taxonomy category.\n"
             "2. Map to both relevant high-level categories (e.g. Biotechnology, Peptide Therapeutics) and specific sub-technology nodes where appropriate.\n"
-            "3. Return a clean JSON array of mappings: [{'node_id': '...', 'product_ids': ['...']}]\n"
+            "3. CRITICAL: ONLY return mappings for nodes that actually MATCH at least one product! DO NOT include nodes with empty product_ids.\n"
+            "4. Return a clean JSON array of mappings: [{\"node_id\": \"...\", \"product_ids\": [\"...\"]}]\n"
             "Only return the JSON array, no extra conversational text."
         )
 
@@ -62,14 +63,56 @@ def map_products(state: TaxonomyGenerationState) -> dict:
             {"role": "user", "content": user_content}
         ]
 
-        response_text = chat_completion(messages, model="gpt-4o-mini").strip()
-        # Clean potential markdown fences
-        if response_text.startswith("```"):
-            response_text = response_text.split("\n", 1)[1]
-            if response_text.endswith("```"):
-                response_text = response_text.rsplit("\n", 1)[0]
+        response_text = chat_completion(messages, model="gpt-4o-mini", max_tokens=16384).strip()
+        
+        # Resilient JSON parsing with partial recovery if LLM output was truncated
+        mappings = []
+        clean_text = response_text
+        if clean_text.startswith("```"):
+            clean_text = clean_text.split("\n", 1)[1]
+            if clean_text.endswith("```"):
+                clean_text = clean_text.rsplit("\n", 1)[0]
+            elif "```" in clean_text:
+                clean_text = clean_text.split("```")[0]
+        clean_text = clean_text.strip()
 
-        mappings = json.loads(response_text)
+        try:
+            parsed = json.loads(clean_text)
+            if isinstance(parsed, list):
+                mappings = parsed
+            elif isinstance(parsed, dict):
+                for k in ["mappings", "results", "data", "nodes"]:
+                    if k in parsed and isinstance(parsed[k], list):
+                        mappings = parsed[k]
+                        break
+        except Exception:
+            # Recovery: truncate to the last valid completed object in the JSON array
+            last_brace = clean_text.rfind("}")
+            if last_brace != -1:
+                truncated_attempt = clean_text[:last_brace + 1].strip()
+                if not truncated_attempt.endswith("]"):
+                    truncated_attempt += "\n]"
+                first_bracket = truncated_attempt.find("[")
+                if first_bracket != -1:
+                    truncated_attempt = truncated_attempt[first_bracket:]
+                try:
+                    recovered = json.loads(truncated_attempt)
+                    if isinstance(recovered, list):
+                        print(f"-> Safely recovered {len(recovered)} product mappings from partial JSON output")
+                        mappings = recovered
+                except Exception:
+                    pass
+
+            if not mappings:
+                import re
+                matches = re.findall(r'\{\s*"node_id"\s*:\s*"[^"]+"\s*,\s*"product_ids"\s*:\s*\[[^\]]*\]\s*\}', clean_text)
+                for m in matches:
+                    try:
+                        mappings.append(json.loads(m))
+                    except Exception:
+                        continue
+                if mappings:
+                    print(f"-> Regex recovered {len(mappings)} individual product mappings")
         
         # Build node_id -> set of product_ids map
         node_product_map = {}

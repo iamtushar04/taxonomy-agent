@@ -237,6 +237,13 @@ def build_hierarchy(state: TaxonomyGenerationState) -> dict:
                 groups already nested. Groups at the bottom were silently dropped.
     """
     print("--- BUILDING HIERARCHY ---")
+    run_id = state.get("run_id", "default")
+    try:
+        # pyrefly: ignore [missing-import]
+        from services.run_stage_service import set_run_stage
+        set_run_stage(run_id, "building_hierarchy")
+    except Exception:
+        pass
 
     concept_tree_skeleton = state.get("concept_tree_skeleton", {})
     concept_groups = state.get("concept_groups", {})

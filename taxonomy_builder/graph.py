@@ -27,6 +27,7 @@ from taxonomy_builder.nodes.extract_concepts import extract_concepts
 from taxonomy_builder.nodes.group_concepts import group_concepts
 from taxonomy_builder.nodes.deduplicate_concepts import deduplicate_concepts
 from taxonomy_builder.nodes.build_hierarchy import build_hierarchy
+from taxonomy_builder.nodes.audit_hierarchy import audit_hierarchy
 from taxonomy_builder.nodes.validate_hierarchy import validate_hierarchy
 from taxonomy_builder.nodes.enrich_nodes import enrich_nodes
 from taxonomy_builder.nodes.format_taxonomy import format_taxonomy
@@ -106,7 +107,8 @@ def build_taxonomy_graph():
     builder.add_node("deduplicate_concepts", deduplicate_concepts)
     builder.add_node("group_concepts", group_concepts)
     builder.add_node("build_hierarchy", build_hierarchy)
-    builder.add_node("validate_hierarchy", validate_hierarchy)   # NEW Phase 4
+    builder.add_node("audit_hierarchy", audit_hierarchy)         # Self-Refining Ontologist Agent
+    builder.add_node("validate_hierarchy", validate_hierarchy)   # Structural validation gate
     builder.add_node("enrich_nodes", enrich_nodes)
     builder.add_node("format_taxonomy", format_taxonomy)
     builder.add_node("map_products", map_products)
@@ -125,8 +127,9 @@ def build_taxonomy_graph():
     builder.add_edge("extract_concepts", "deduplicate_concepts")
     builder.add_edge("deduplicate_concepts", "group_concepts")
     builder.add_edge("group_concepts", "build_hierarchy")
-    builder.add_edge("build_hierarchy", "validate_hierarchy")    # NEW Phase 4
-    builder.add_edge("validate_hierarchy", "enrich_nodes")       # was build_hierarchy → enrich_nodes
+    builder.add_edge("build_hierarchy", "audit_hierarchy")
+    builder.add_edge("audit_hierarchy", "validate_hierarchy")
+    builder.add_edge("validate_hierarchy", "enrich_nodes")
     builder.add_edge("enrich_nodes", "format_taxonomy")
     builder.add_edge("format_taxonomy", "map_products")
     builder.add_edge("map_products", END)
