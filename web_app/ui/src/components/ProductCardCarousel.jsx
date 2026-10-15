@@ -260,55 +260,6 @@ export default function ProductCardCarousel({
           </div>
         </div>
       )}
-
-      {/* Action Buttons */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4, paddingTop: 10, borderTop: '1px solid #1e293b' }}>
-        <button
-          type="button"
-          onClick={() => {
-            if (patentIds.length > 0) {
-              onTriggerBuild();
-            } else {
-              onSendMessage("I'm ready to build. Please extract patent categories based on these products.");
-            }
-          }}
-          style={{
-            background: '#059669',
-            color: 'white',
-            border: 'none',
-            borderRadius: 6,
-            padding: '6px 12px',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6
-          }}
-        >
-          <span>✓ Looks good, build taxonomy</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (onSetInput) {
-              onSetInput("Focus specifically on mechanism of action, avoid manufacturing: ");
-            }
-          }}
-          style={{
-            background: '#334155',
-            color: '#cbd5e1',
-            border: 'none',
-            borderRadius: 6,
-            padding: '6px 12px',
-            fontSize: 12,
-            fontWeight: 500,
-            cursor: 'pointer'
-          }}
-        >
-          <span>✏️ Adjust Focus / Instructions</span>
-        </button>
-      </div>
     </div>
   );
 }

@@ -419,7 +419,7 @@ export default function InlineChatView({
   // Send conversational message
   const handleSendMessage = async (textToSend = null) => {
     const text = (textToSend || input).trim();
-    if (!text || loading) return;
+    if (!text || loading || status === 'running') return;
 
     const userMsg = {
       id: `usr-${Date.now()}`,
@@ -833,7 +833,24 @@ export default function InlineChatView({
         background: '#090d16',
         borderTop: '1px solid #1e293b'
       }}>
-        {runId ? (
+        {status === 'running' ? (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            color: '#f59e0b',
+            fontSize: 12,
+            fontWeight: 500,
+            padding: '4px 10px',
+            background: 'rgba(245, 158, 11, 0.1)',
+            borderRadius: 6,
+            border: '1px solid rgba(245, 158, 11, 0.25)',
+            width: '100%'
+          }}>
+            <span style={{ display: 'inline-block', animation: 'spin 2s linear infinite' }}>⚙️</span>
+            <span>Taxonomy graph is generating & auditing... Chat co-pilot will unlock automatically once complete.</span>
+          </div>
+        ) : runId ? (
           <>
             {[
               "Why are patents grouped this way?",
@@ -906,33 +923,39 @@ export default function InlineChatView({
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          background: '#0f172a',
+          background: status === 'running' ? '#0b1120' : '#0f172a',
           borderRadius: 24,
           padding: '6px 14px',
-          border: '1px solid #334155',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+          border: status === 'running' ? '1px dashed #475569' : '1px solid #334155',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+          opacity: status === 'running' ? 0.75 : 1,
+          transition: 'all 0.2s ease'
         }}>
           {/* Conversational Text Input */}
           <input
             type="text"
             value={input}
+            disabled={status === 'running' || loading}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSendMessage();
             }}
             placeholder={
-              runId
-                ? "Ask AI about this taxonomy or type 'Map X under Y'..."
-                : "Type instructions or ask Taxonomy Co-Pilot..."
+              status === 'running'
+                ? "🔒 Pipeline is generating graph... Chat locked until complete"
+                : runId
+                  ? "Ask AI about this taxonomy or type 'Map X under Y'..."
+                  : "Type instructions or ask Taxonomy Co-Pilot..."
             }
             style={{
               flex: 1,
               background: 'transparent',
               border: 'none',
               outline: 'none',
-              color: '#f8fafc',
+              color: status === 'running' ? '#64748b' : '#f8fafc',
               fontSize: 14,
-              padding: '6px 0'
+              padding: '6px 0',
+              cursor: status === 'running' ? 'not-allowed' : 'text'
             }}
           />
 
@@ -940,23 +963,24 @@ export default function InlineChatView({
           <button
             onClick={() => handleSendMessage()}
             disabled={loading || status === 'running' || !input.trim()}
+            title={status === 'running' ? "Locked while graph is generating" : "Send message"}
             style={{
               width: 32,
               height: 32,
               borderRadius: '50%',
-              background: input.trim() ? '#0284c7' : '#334155',
-              color: 'white',
+              background: status === 'running' ? '#1e293b' : (input.trim() ? '#0284c7' : '#334155'),
+              color: status === 'running' ? '#64748b' : 'white',
               border: 'none',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              cursor: input.trim() ? 'pointer' : 'default',
-              fontSize: 14,
+              cursor: status === 'running' ? 'not-allowed' : (input.trim() ? 'pointer' : 'default'),
+              fontSize: status === 'running' ? 12 : 14,
               fontWeight: 'bold',
               transition: 'background 0.2s ease'
             }}
           >
-            ↑
+            {status === 'running' ? '🔒' : '↑'}
           </button>
         </div>
       </div>

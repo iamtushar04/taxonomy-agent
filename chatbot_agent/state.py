@@ -109,6 +109,11 @@ class ChatAgentState(BaseModel):
     final_taxonomy: Optional[list[dict[str, Any]]] = None
     source_data: Optional[dict[str, Any]] = None
 
+    # ── Semantic Agent & Tool Execution ───────────────────────────────────────
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    active_focus_node: Optional[str] = None
+    active_focus_patent: Optional[str] = None
+
     # ── Response to send back ──────────────────────────────────────────────────
     response_text: str = ""
     response_metadata: dict[str, Any] = Field(default_factory=dict)  # e.g. product card, run trigger
