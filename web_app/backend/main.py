@@ -13,6 +13,8 @@ from routes.taxonomy import router as api_router
 from routes.products import router as product_router
 # pyrefly: ignore [missing-import]
 from routes.chat import router as chat_router
+# pyrefly: ignore [missing-import]
+from routes.delete import router as delete_router
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -37,5 +39,6 @@ app.add_middleware(
 app.include_router(api_router)
 app.include_router(product_router)
 app.include_router(chat_router)
+app.include_router(delete_router)
 
-# Reload trigger: 2026-10-14 19:18 IST - Multi-product carousel list attached in analyze_product
+# Reload trigger: 2026-10-15 - Added 202 accepted delete routes

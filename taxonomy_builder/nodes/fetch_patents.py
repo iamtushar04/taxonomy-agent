@@ -75,7 +75,50 @@ def fetch_patents(state: TaxonomyGenerationState) -> dict:
                 print(f"Failed to fetch {p_id}: {e}")
                 errors.append(f"Fetch failed for {p_id}: {e}")
                 
+    # Derive unified canonical domain anchor across patents and products
+    domain_anchor = {}
+    if patents_data:
+        sample_titles = [p.get("title", "") for p in list(patents_data.values())[:15] if p.get("title")]
+        products_data = state.get("products_data", {})
+        mental_model_context = state.get("mental_model_context", "")
+
+        product_hints = []
+        if products_data and isinstance(products_data, dict):
+            for p in list(products_data.values())[:6]:
+                if isinstance(p, dict):
+                    p_name = p.get("product_name", "")
+                    p_cat = p.get("category", "")
+                    product_hints.append(f"{p_name} ({p_cat})")
+
+        prompt = (
+            "You are a chief patent ontologist.\n"
+            "Analyze the following patent titles, summaries, and commercial product context.\n"
+            "Define the single CANONICAL technology domain anchor that unifies all of them into a coherent taxonomy.\n\n"
+            f"Patent Titles:\n" + "\n".join(f"- {t}" for t in sample_titles[:12]) + "\n\n"
+            f"Product Context:\n{mental_model_context or ', '.join(product_hints) or 'None'}\n\n"
+            "RULES:\n"
+            "1. Identify the single unified 'primary_domain' (e.g. 'Materials Science & Polymer Chemistry' or 'Pharmaceuticals & Biotechnology').\n"
+            "2. Identify exactly 3 to 5 'canonical_subdomains' that represent the core technical pillars (e.g. ['Catalysts & Formulation', 'Polymerization & Reactor Processes', 'Resin Properties & Morphologies', 'End-Use Applications & Molding']).\n"
+            "3. Output ONLY a clean JSON object:\n"
+            "{\n"
+            '  "primary_domain": "...",\n'
+            '  "canonical_subdomains": ["...", "...", "..."]\n'
+            "}\n"
+        )
+        try:
+            from pipeline.utils.llm_client import chat_json
+            domain_anchor = chat_json(
+                messages=[{"role": "user", "content": prompt}],
+                cheap=True,
+                max_tokens=600
+            )
+            print(f"-> Established Canonical Domain Anchor: {domain_anchor.get('primary_domain')} | Subdomains: {domain_anchor.get('canonical_subdomains')}")
+        except Exception as e:
+            print(f"Note: Could not generate domain anchor: {e}")
+
     out_data = {"patents_data": patents_data}
+    if domain_anchor:
+        out_data["domain_anchor"] = domain_anchor
     if errors:
         out_data["errors"] = errors
         

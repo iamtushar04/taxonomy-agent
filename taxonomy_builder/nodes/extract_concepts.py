@@ -14,11 +14,27 @@ def extract_concepts(payload: dict[str, Any]) -> dict:
     patent_id = payload["patent_id"]
     text = payload["text"]
     is_product = payload.get("is_product", False)
+    domain_anchor = payload.get("domain_anchor") or {}
+
+    anchor_guidance = ""
+    if domain_anchor and isinstance(domain_anchor, dict):
+        p_dom = domain_anchor.get("primary_domain")
+        s_doms = domain_anchor.get("canonical_subdomains") or []
+        if p_dom:
+            anchor_guidance = (
+                f"\nCANONICAL DATASET DOMAIN ANCHOR:\n"
+                f"Primary Domain: '{p_dom}'\n"
+                f"Core Subdomains: {', '.join(s_doms)}\n"
+                f"MANDATORY: For each concept's 'domain_path', the first level MUST be '{p_dom}' or one of the Core Subdomains above. "
+                f"Do NOT invent unrelated high-level root branches so that concepts cluster cleanly across all documents.\n"
+            )
 
     if is_product:
         print(f"--- EXTRACTING PRODUCT CONCEPTS: {patent_id} ---")
-        system_prompt = """You are an expert technical product analyst and ontologist. Your task is to extract highly granular technical features, architecture components, engineering mechanisms, and parameters from the provided commercial product specification.
-
+        system_prompt = (
+            "You are an expert technical product analyst and ontologist. Your task is to extract highly granular technical features, architecture components, engineering mechanisms, and parameters from the provided commercial product specification.\n"
+            + anchor_guidance +
+            """
 RULES:
 1. Extract granular engineering parameters, components, modules, protocols, materials, and algorithms.
 2. Focus strictly on substantive technical and functional capabilities. Do NOT extract marketing fluff (e.g., "seamless", "best-in-class", "innovative solution").
@@ -27,11 +43,14 @@ RULES:
    - "reasoning": a 1-2 sentence explanation of the technical domain of this commercial product
    - "concepts": a list of objects, each with "name" (string), "context" (plain text string describing the feature or parameter values; do NOT output a nested dictionary), and "domain_path" (list of strings)
 """
+        )
         user_prompt = f"Extract the key technical features and architectural concepts from this product document:\n\n{text[:60000]}"
     else:
         print(f"--- EXTRACTING CONCEPTS: {patent_id} ---")
-        system_prompt = """You are an expert patent analyst. Your task is to extract highly granular technical concepts and parameters from the provided patent text.
-
+        system_prompt = (
+            "You are an expert patent analyst. Your task is to extract highly granular technical concepts and parameters from the provided patent text.\n"
+            + anchor_guidance +
+            """
 First, identify the technology domain this patent belongs to. Then extract specific technical concepts.
 
 RULES:
@@ -68,6 +87,7 @@ RULES:
   ]
 }
 """
+        )
         user_prompt = f"Extract the key technical concepts from the following patent text:\n\n{text[:60000]}"
 
     mental_model_context = payload.get("mental_model_context")

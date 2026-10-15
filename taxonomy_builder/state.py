@@ -186,6 +186,8 @@ class TaxonomyGenerationState(TypedDict, total=False):
     
     # ── Optional Commercial Product Ingestion ────────────────────────────────
     products_data: dict[str, Any]
+    mental_model_context: str
+    domain_anchor: dict[str, Any]
     
     # ── Errors ───────────────────────────────────────────────────────────────
     errors: Annotated[list[str], operator.add]

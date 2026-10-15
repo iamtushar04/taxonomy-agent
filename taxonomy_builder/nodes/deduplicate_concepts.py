@@ -107,8 +107,8 @@ def deduplicate_concepts(state: TaxonomyGenerationState) -> dict:
     print(f"Computing local embeddings for {len(unique_names)} unique concepts...")
     embeddings_raw = list(model.embed(unique_names))
 
-    # ── Step 4: Community detection at RAISED threshold (0.85 → 0.88) ────────
-    THRESHOLD = 0.88   # stricter — fewer near-duplicates slip through
+    # ── Step 4: Community detection at balanced threshold (0.83) ────────
+    THRESHOLD = 0.83   # Balanced threshold: merges near-synonyms without over-merging
     communities = community_detection(embeddings_raw, min_community_size=1, threshold=THRESHOLD)
 
     clusters = []
@@ -116,40 +116,53 @@ def deduplicate_concepts(state: TaxonomyGenerationState) -> dict:
         cluster = [unique_names[idx] for idx in community]
         clusters.append(cluster)
 
-    print(f"Reduced {len(unique_names)} raw concepts to {len(clusters)} canonical concepts.")
+    print(f"Reduced {len(unique_names)} raw concepts to {len(clusters)} canonical concept clusters.")
 
     # ── Step 5: Chunked batch naming (50 per call) ───────────────────────────
     print(f"Naming {len(clusters)} clusters (batched, 50 per call)...")
     name_map = _batch_name_clusters(clusters)
 
-    # ── Step 6: Build CanonicalConcepts with aggregated domain_paths ─────────
-    canonical_concepts = []
-
+    # ── Step 6: Build CanonicalConcepts and unify by canonical name ──────────
+    merged_by_name: dict[str, dict] = {}
     for i, cluster in enumerate(clusters):
-        canonical_name = name_map.get(i, clusters[i][0].title())
+        raw_canonical = name_map.get(i, clusters[i][0].title()).strip()
+        canonical_name = raw_canonical
+        
+        # Unify if exact or case-insensitive match already exists
+        existing_key = next((k for k in merged_by_name if k.lower() == canonical_name.lower()), None)
+        target_name = existing_key if existing_key else canonical_name
+        
+        if target_name not in merged_by_name:
+            merged_by_name[target_name] = {
+                "supporting_patent_ids": set(),
+                "supporting_contexts": [],
+                "contexts_by_patent": {},
+                "domain_paths": [],
+                "cluster_terms": set()
+            }
+        merged_by_name[target_name]["cluster_terms"].update(cluster)
 
-        supporting_patent_ids: set[str] = set()
-        supporting_contexts: list[str] = []
-        contexts_by_patent: dict[str, list[str]] = {}
-        domain_paths: list[list[str]] = []
-
-        for c in all_concepts:
-            if c.name.lower().strip() in cluster:
-                supporting_patent_ids.add(c.patent_id)
-                supporting_contexts.append(c.context)
-                contexts_by_patent.setdefault(c.patent_id, []).append(c.context)
+    # Populate evidence from all_concepts
+    for c in all_concepts:
+        c_clean = c.name.lower().strip()
+        for c_name, data in merged_by_name.items():
+            if c_clean in data["cluster_terms"]:
+                data["supporting_patent_ids"].add(c.patent_id)
+                data["supporting_contexts"].append(c.context)
+                data["contexts_by_patent"].setdefault(c.patent_id, []).append(c.context)
                 if c.domain_path:
-                    domain_paths.append(c.domain_path)
+                    data["domain_paths"].append(c.domain_path)
 
-        canonical_concepts.append(
-            CanonicalConcept(
-                name=canonical_name,
-                supporting_patent_ids=list(supporting_patent_ids),
-                supporting_contexts=supporting_contexts,
-                contexts_by_patent=contexts_by_patent,
-                domain_paths=domain_paths
-            )
+    canonical_concepts = [
+        CanonicalConcept(
+            name=c_name,
+            supporting_patent_ids=list(data["supporting_patent_ids"]),
+            supporting_contexts=data["supporting_contexts"],
+            contexts_by_patent=data["contexts_by_patent"],
+            domain_paths=data["domain_paths"]
         )
+        for c_name, data in merged_by_name.items()
+    ]
 
     with_paths = sum(1 for c in canonical_concepts if c.domain_paths)
     print(f"Domain path coverage: {with_paths}/{len(canonical_concepts)} canonical concepts have domain ancestry.")

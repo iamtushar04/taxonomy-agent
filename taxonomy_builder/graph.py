@@ -48,6 +48,8 @@ def continue_to_extract_concepts(state: TaxonomyGenerationState):
 
     sends = []
     
+    domain_anchor = state.get("domain_anchor")
+
     # 1. Dispatch parallel extraction for patents
     for p_id, p_data in patents_data.items():
         sends.append(
@@ -58,7 +60,8 @@ def continue_to_extract_concepts(state: TaxonomyGenerationState):
                     "patent_id": p_id,
                     "text": p_data.get("full_text", ""),
                     "is_product": False,
-                    "mental_model_context": state.get("mental_model_context")
+                    "mental_model_context": state.get("mental_model_context"),
+                    "domain_anchor": domain_anchor
                 }
             )
         )
@@ -85,7 +88,8 @@ def continue_to_extract_concepts(state: TaxonomyGenerationState):
                     "patent_id": prod_id,  # will be prod_xxx
                     "text": product_doc_text,
                     "is_product": True,
-                    "product_name": prod_name
+                    "product_name": prod_name,
+                    "domain_anchor": domain_anchor
                 }
             )
         )

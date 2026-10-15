@@ -27,6 +27,80 @@ def _get_root_keys(tree_dict: dict) -> list[str]:
     return list(tree_dict.keys())
 
 
+def _count_leaves(tree_dict: dict) -> int:
+    if not tree_dict or not isinstance(tree_dict, dict):
+        return 1
+    total = 0
+    for v in tree_dict.values():
+        if isinstance(v, dict) and v:
+            total += _count_leaves(v)
+        else:
+            total += 1
+    return max(total, 1)
+
+
+def _consolidate_tiny_branches(tree: dict) -> dict:
+    """
+    Consolidates tiny/lone branches (e.g. 1-2 nodes) under 'Technology' into dominant sibling branches.
+    Prevents the 'Chemistry: 1 vs Materials Science: 33' fragmentation.
+    """
+    tech_root = tree.get("Technology")
+    if not isinstance(tech_root, dict) or len(tech_root) <= 1:
+        return tree
+
+    branch_counts = {k: _count_leaves(v) for k, v in tech_root.items() if isinstance(v, dict)}
+    if not branch_counts:
+        return tree
+
+    max_branch = max(branch_counts, key=branch_counts.get)
+    max_count = branch_counts[max_branch]
+
+    keys_to_merge = []
+    for branch_name, count in branch_counts.items():
+        if branch_name != max_branch and count <= 2 and max_count >= 6:
+            keys_to_merge.append(branch_name)
+
+    for k in keys_to_merge:
+        print(f"Consolidation: merging lone branch '{k}' ({branch_counts[k]} node(s)) into dominant branch '{max_branch}' ({max_count} nodes)...")
+        content = tech_root[k]
+        if isinstance(content, dict):
+            tech_root[max_branch][k] = content
+        del tech_root[k]
+
+    return tree
+
+
+def _deduplicate_leaf_nodes(tree: dict) -> dict:
+    """
+    Ensures no duplicate leaf nodes exist across the entire taxonomy tree.
+    If a concept appears in multiple branches, keeps the deeper/more specific one and prunes duplicates.
+    """
+    seen_leaves: dict[str, tuple[list[str], dict]] = {}
+
+    def _collect_paths(subtree, current_path):
+        for k in list(subtree.keys()):
+            v = subtree[k]
+            new_path = current_path + [k]
+            if not isinstance(v, dict) or not v:
+                # Leaf node
+                k_norm = k.lower().strip()
+                if k_norm in seen_leaves:
+                    prev_path, prev_sub = seen_leaves[k_norm]
+                    if len(new_path) >= len(prev_path):
+                        if k in prev_sub:
+                            del prev_sub[k]
+                        seen_leaves[k_norm] = (new_path, subtree)
+                    else:
+                        del subtree[k]
+                else:
+                    seen_leaves[k_norm] = (new_path, subtree)
+            else:
+                _collect_paths(v, new_path)
+
+    _collect_paths(tree, [])
+    return tree
+
+
 def validate_hierarchy(state: TaxonomyGenerationState) -> dict:
     """
     Phase 4 — Validation Gate between build_hierarchy and enrich_nodes.
@@ -35,10 +109,8 @@ def validate_hierarchy(state: TaxonomyGenerationState) -> dict:
     1. Tree is rooted at 'Technology' (or a single sensible root)
     2. Minimum depth of 4 levels
     3. All concept groups appear somewhere in the tree
-    4. No orphaned groups — auto-patches missing ones
-
-    If the tree is critically broken (depth < 3 or no Technology root),
-    triggers a single repair LLM call to fix it.
+    4. Consolidates lone/tiny branches into dominant parent branches
+    5. Deduplicates leaf concepts across sibling/cousin branches
     """
     print("--- VALIDATING HIERARCHY ---")
     draft_tree = state.get("draft_tree", {})
@@ -125,6 +197,12 @@ RULES:
             patched = True
         except Exception as e:
             print(f"Repair call failed: {e}. Keeping current tree.")
+
+    # ── Check 4: Consolidate lone/tiny branches into dominant parent branches ─
+    draft_tree = _consolidate_tiny_branches(draft_tree)
+
+    # ── Check 5: Eliminate duplicate leaf nodes across different branches ─────
+    draft_tree = _deduplicate_leaf_nodes(draft_tree)
 
     # ── Summary ──────────────────────────────────────────────────────────────
     if issues:

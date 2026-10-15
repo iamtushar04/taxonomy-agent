@@ -24,37 +24,29 @@ def _build_backbone(all_domain_paths: list[list[str]]) -> dict:
     l4 = Counter(p[2] for p in all_domain_paths if len(p) >= 3)
     total = len(all_domain_paths)
 
+    # Filter minor L2 domains with less than 12% representation to prevent split roots
+    filtered_l2 = {n: c for n, c in l2.items() if (c / max(total, 1)) >= 0.12 or c >= 3}
+    if not filtered_l2 and l2:
+        filtered_l2 = dict(l2.most_common(2))
+
     evidence_block = (
         f"Evidence from {total} patent domain path signals:\n"
-        f"  Level 2 (Broad Domain): " + ", ".join(f"{n} ({c}x)" for n, c in l2.most_common(6)) + "\n"
+        f"  Level 2 (Broad Domain): " + ", ".join(f"{n} ({c}x)" for n, c in Counter(filtered_l2).most_common(4)) + "\n"
         f"  Level 3 (Tech Area):    " + ", ".join(f"{n} ({c}x)" for n, c in l3.most_common(6)) + "\n"
         f"  Level 4 (Sub-system):   " + ", ".join(f"{n} ({c}x)" for n, c in l4.most_common(6))
     )
 
-    system = """You are a taxonomy architect. Your job is to build the STRUCTURAL BACKBONE of a patent taxonomy.
+    system = """You are a master patent taxonomist and ontologist. Your job is to build the STRUCTURAL BACKBONE of a coherent patent taxonomy.
 
 IMPORTANT: Output ONLY the backbone skeleton (Level 1-4). Do NOT include specific concept groups yet.
-The concept groups will be inserted in a separate step.
 
 RULES:
-1. Root node MUST be "Technology" (Level 1)
-2. Build exactly 3-4 levels deep using the domain evidence provided
-3. Include ONLY nodes that are directly supported by the evidence counts
-4. Output a nested JSON object where all leaf values are {}
-5. Keep it concise — maximum 5 nodes per level
-
-EXAMPLE OUTPUT (for a polymer chemistry domain):
-{
-  "Technology": {
-    "Chemistry": {
-      "Polymer Chemistry": {
-        "Polymerization Processes": {},
-        "Catalyst Systems": {},
-        "Polymer Properties": {}
-      }
-    }
-  }
-}
+1. Root node MUST be "Technology" (Level 1).
+2. Level 2 (Broad Domain): Use ONLY 1 or 2 dominant, overarching technology domains from the evidence (e.g. "Materials Science & Polymer Chemistry"). Consolidate minor domains into the dominant domain. NEVER create a split top-level branch that only holds 1 or 2 concepts.
+3. Level 3 (Tech Areas): Break down the dominant domain into 3 to 5 core technological pillars.
+4. Level 4 (Sub-systems): Specific operational systems or component classes.
+5. Build exactly 3-4 levels deep. Output a nested JSON object where all leaf values are {}.
+6. Keep it concise — maximum 5 nodes per level.
 """
 
     user = (

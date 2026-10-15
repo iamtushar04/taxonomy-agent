@@ -53,6 +53,24 @@ const DashboardSidebar = ({ currentRunId, onSelectRun, refreshTrigger }) => {
     }
   };
 
+  const handleDeleteSession = async (e, id) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this session? This action cannot be undone.")) {
+      return;
+    }
+    try {
+      // 202 Accepted asynchronous deletion technique
+      await axiosClient.delete(`/api/delete/sessions/${id}`);
+      setRuns(prev => prev.filter(r => r.id !== id));
+      if (currentRunId === id) {
+        onSelectRun(null);
+      }
+    } catch (err) {
+      console.error("Failed to delete session", err);
+      alert(err.response?.data?.detail || "Failed to delete session");
+    }
+  };
+
   return (
     <div style={{ width: '250px', background: '#2c3e50', color: 'white', display: 'flex', flexDirection: 'column', height: '100%', borderRight: '1px solid #1a252f' }}>
       <div style={{ padding: '20px', borderBottom: '1px solid #34495e', background: '#1a252f', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -111,20 +129,29 @@ const DashboardSidebar = ({ currentRunId, onSelectRun, refreshTrigger }) => {
                   />
                 ) : (
                   <>
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '160px' }}>
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>
                       {run.name}
                     </span>
-                    <span 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingId(run.id);
-                        setEditName(run.name);
-                      }} 
-                      style={{ cursor: 'pointer', fontSize: '12px', opacity: 0.6, padding: '2px' }}
-                      title="Rename"
-                    >
-                      ✏️
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingId(run.id);
+                          setEditName(run.name);
+                        }} 
+                        style={{ cursor: 'pointer', fontSize: '12px', opacity: 0.6, padding: '2px' }}
+                        title="Rename"
+                      >
+                        ✏️
+                      </span>
+                      <span 
+                        onClick={(e) => handleDeleteSession(e, run.id)} 
+                        style={{ cursor: 'pointer', fontSize: '12px', opacity: 0.6, padding: '2px' }}
+                        title="Delete Session"
+                      >
+                        🗑️
+                      </span>
+                    </div>
                   </>
                 )}
               </div>

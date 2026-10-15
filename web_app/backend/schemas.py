@@ -35,3 +35,8 @@ class GraphPayload(BaseModel):
 
 class RenameRunRequest(BaseModel):
     name: str
+
+class DeleteSessionResponse(BaseModel):
+    status: str = "accepted"
+    message: str
+    session_id: str
