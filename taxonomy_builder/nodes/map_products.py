@@ -93,6 +93,22 @@ def map_products(state: TaxonomyGenerationState) -> dict:
 
         out_data = {"final_taxonomy": updated_taxonomy}
         log_node_event(state.get("run_id", "default"), "map_products", state, out_data)
+
+        # Regenerate Matrix Excel with Product sheets immediately
+        try:
+            run_id = state.get("run_id")
+            source_data = state.get("patents_data", {})
+            draft_tree = state.get("draft_tree", {})
+            if run_id and draft_tree:
+                from taxonomy_builder.utils.excel_matrix_generator import generate_dynamic_matrix_excel
+                matrix_path = f"c:\\Users\\Vipul\\Desktop\\taxonomies_agent\\data\\taxonomy_matrix_{run_id}.xlsx"
+                generate_dynamic_matrix_excel(
+                    source_data, updated_taxonomy, draft_tree, matrix_path, products_data=products_data
+                )
+                print(f"-> Updated Matrix Excel with Product sheets at {matrix_path}")
+        except Exception as me:
+            print(f"Note: Could not refresh Excel matrix in map_products: {me}")
+
         return out_data
 
     except Exception as e:

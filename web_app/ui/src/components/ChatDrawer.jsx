@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axiosClient from '../api/axiosClient';
+import FormattedMessageContent from './FormattedMessageContent';
 
 export default function ChatDrawer({ isOpen, onClose, runId, initialMessage, onClearInitialMessage }) {
   const [messages, setMessages] = useState([]);
@@ -196,11 +197,11 @@ export default function ChatDrawer({ isOpen, onClose, runId, initialMessage, onC
                   lineHeight: 1.55,
                   boxShadow: isUser ? '0 2px 6px rgba(2,132,199,0.25)' : '0 1px 3px rgba(0,0,0,0.06)',
                   border: isUser ? 'none' : '1px solid #e2e8f0',
-                  whiteSpace: 'pre-wrap',
+                  whiteSpace: 'normal',
                   wordBreak: 'break-word'
                 }}
               >
-                {msg.content}
+                <FormattedMessageContent content={msg.content} isUser={isUser} />
               </div>
 
               {/* Show intent or badge for assistant if available */}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axiosClient from '../api/axiosClient';
 import TaxonomySetupPanel from './TaxonomySetupPanel';
 import ProductCardCarousel from './ProductCardCarousel';
+import FormattedMessageContent from './FormattedMessageContent';
 
 export default function InlineChatView({
   runId,
@@ -593,48 +594,6 @@ export default function InlineChatView({
               <span>{isGraphMinimized ? '⤢ Expand Graph' : '─ Minimize Graph'}</span>
             </button>
           )}
-
-          {runId && onPreviewExcel && (
-            <button
-              onClick={onPreviewExcel}
-              style={{
-                background: '#334155',
-                color: '#e2e8f0',
-                border: 'none',
-                borderRadius: 8,
-                padding: '6px 12px',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5
-              }}
-            >
-              <span>📊 Preview Excel</span>
-            </button>
-          )}
-
-          {runId && onOpenAnalytics && (
-            <button
-              onClick={onOpenAnalytics}
-              style={{
-                background: '#334155',
-                color: '#e2e8f0',
-                border: 'none',
-                borderRadius: 8,
-                padding: '6px 12px',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5
-              }}
-            >
-              <span>📈 Analytics</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -697,9 +656,9 @@ export default function InlineChatView({
                     border: `1px solid ${isUser ? '#3b82f6' : '#334155'}`,
                     boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
                     wordBreak: 'break-word',
-                    whiteSpace: 'pre-wrap'
+                    whiteSpace: 'normal'
                   }}>
-                    {msg.content}
+                    <FormattedMessageContent content={msg.content} isUser={isUser} />
 
                     {/* Dedicated Setup Panel rendered right below the welcome card */}
                     {msg.id === 'welcome-msg' && !runId && (

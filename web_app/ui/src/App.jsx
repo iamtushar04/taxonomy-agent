@@ -357,6 +357,36 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
 
+  // Draggable Split Screen State
+  const [chatWidthPercent, setChatWidthPercent] = useState(42);
+  const [isDraggingSplitter, setIsDraggingSplitter] = useState(false);
+  const splitContainerRef = useRef(null);
+
+  useEffect(() => {
+    if (!isDraggingSplitter) return;
+
+    const handleMouseMove = (e) => {
+      if (!splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      const currentX = e.clientX - rect.left;
+      const newPercent = (currentX / rect.width) * 100;
+      // Clamp between 20% and 80%
+      const clamped = Math.max(20, Math.min(80, newPercent));
+      setChatWidthPercent(clamped);
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingSplitter(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingSplitter]);
+
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const { getNodes, getEdges } = useReactFlow();
@@ -774,8 +804,35 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
           </div>
         )}
 
-        {/* Right side: user + logout */}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* Right side: user + Excel actions + logout */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {currentRunId && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '4px' }}>
+              <button
+                onClick={handlePreviewExcel}
+                disabled={isGeneratingPreview}
+                title="Preview Spreadsheet with exact merged hierarchy & download options"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 14px',
+                  background: '#0f172a',
+                  border: '1px solid #38bdf8',
+                  borderRadius: 6,
+                  color: '#38bdf8',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: isGeneratingPreview ? 'wait' : 'pointer',
+                  transition: 'all 0.15s ease',
+                  boxShadow: '0 1px 4px rgba(56, 189, 248, 0.15)'
+                }}
+              >
+                <span>{isGeneratingPreview ? '⏳' : '📊'}</span>
+                <span>{isGeneratingPreview ? 'Loading Preview...' : 'Preview Excel'}</span>
+              </button>
+            </div>
+          )}
           <span style={{ fontSize: '13px', color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>👤</span>
             <span>{userName || `User ${userId}`}</span>
@@ -818,17 +875,29 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
 
         {/* ── UNIFIED WORKSPACE (CONVERSATION + GRAPH) ─────────────────── */}
         {activeTab === 'graph' && (
-          <div style={{ flex: 1, display: 'flex', minHeight: 0, minWidth: 0, position: 'relative', width: '100%', height: '100%' }}>
+          <div 
+            ref={splitContainerRef}
+            style={{ 
+              flex: 1, 
+              display: 'flex', 
+              minHeight: 0, 
+              minWidth: 0, 
+              position: 'relative', 
+              width: '100%', 
+              height: '100%',
+              userSelect: isDraggingSplitter ? 'none' : 'auto',
+              cursor: isDraggingSplitter ? 'col-resize' : 'auto'
+            }}
+          >
             {/* Conversational Hub */}
             <div style={{
-              flex: (!currentRunId || isGraphMinimized) ? '1 1 100%' : (isGraphMaximized ? '0 0 0' : '0 0 42%'),
-              width: isGraphMaximized ? 0 : ((!currentRunId || isGraphMinimized) ? '100%' : '42%'),
+              flex: (!currentRunId || isGraphMinimized) ? '1 1 100%' : (isGraphMaximized ? '0 0 0' : `0 0 ${chatWidthPercent}%`),
+              width: isGraphMaximized ? 0 : ((!currentRunId || isGraphMinimized) ? '100%' : `${chatWidthPercent}%`),
               display: isGraphMaximized ? 'none' : 'flex',
               flexDirection: 'column',
               minWidth: 0,
               height: '100%',
-              borderRight: (currentRunId && !isGraphMinimized && !isGraphMaximized) ? '1px solid #334155' : 'none',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              transition: isDraggingSplitter ? 'none' : 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
               zIndex: 5
             }}>
               <InlineChatView
@@ -847,17 +916,55 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, showSide
               />
             </div>
 
+            {/* Draggable Splitter Handle */}
+            {currentRunId && !isGraphMinimized && !isGraphMaximized && (
+              <div
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setIsDraggingSplitter(true);
+                }}
+                title="Drag left or right to resize Chat & Graph panes"
+                style={{
+                  width: '6px',
+                  background: isDraggingSplitter ? '#38bdf8' : '#334155',
+                  cursor: 'col-resize',
+                  position: 'relative',
+                  zIndex: 20,
+                  transition: 'background 0.15s ease',
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                onMouseEnter={e => {
+                  if (!isDraggingSplitter) e.currentTarget.style.background = '#0284c7';
+                }}
+                onMouseLeave={e => {
+                  if (!isDraggingSplitter) e.currentTarget.style.background = '#334155';
+                }}
+              >
+                {/* Visual grab notches */}
+                <div style={{
+                  width: '2px',
+                  height: '28px',
+                  borderRadius: '2px',
+                  background: isDraggingSplitter ? '#ffffff' : '#94a3b8'
+                }} />
+              </div>
+            )}
+
             {/* Collapsible / Interactive Graph View */}
             {currentRunId && !isGraphMinimized && (
               <div style={{
-                flex: isGraphMaximized ? '1 1 100%' : '0 0 58%',
-                width: isGraphMaximized ? '100%' : '58%',
+                flex: isGraphMaximized ? '1 1 100%' : `0 0 ${100 - chatWidthPercent}%`,
+                width: isGraphMaximized ? '100%' : `${100 - chatWidthPercent}%`,
                 minWidth: 0,
                 display: 'flex',
                 height: '100%',
                 position: 'relative',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                zIndex: 4
+                transition: isDraggingSplitter ? 'none' : 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                zIndex: 4,
+                pointerEvents: isDraggingSplitter ? 'none' : 'auto'
               }}>
                 <CollapsibleGraph
                   nodes={nodes}

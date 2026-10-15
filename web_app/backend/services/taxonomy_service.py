@@ -180,6 +180,10 @@ def process_excel_generation(run_id: str, payload, run_record):
         patents = set(n.data.supporting_patent_ids) if n.data.supporting_patent_ids else set()
         if not patents and n.data.contexts_by_patent:
             patents = set(n.data.contexts_by_patent.keys())
+
+        products = set(n.data.supporting_product_ids) if n.data.supporting_product_ids else set()
+        if not products and getattr(n.data, "contexts_by_product", None):
+            products = set(n.data.contexts_by_product.keys())
         
         flat_nodes.append({
             "node_id": n.id,
@@ -189,8 +193,10 @@ def process_excel_generation(run_id: str, payload, run_record):
             "description": "",
             "supporting_pmids": list(pmids),
             "supporting_patent_ids": list(patents),
+            "supporting_product_ids": list(products),
             "contexts_by_patent": n.data.contexts_by_patent or {},
-            "contexts_by_pmid": n.data.contexts_by_pmid or {}
+            "contexts_by_pmid": n.data.contexts_by_pmid or {},
+            "contexts_by_product": getattr(n.data, "contexts_by_product", None) or {}
         })
         
     children_map = {}
@@ -201,20 +207,23 @@ def process_excel_generation(run_id: str, payload, run_record):
     node_map = {n["node_id"]: n for n in flat_nodes}
     
     def collect_descendants(node_id, visited):
-        if node_id in visited: return set(), set()
+        if node_id in visited: return set(), set(), set()
         visited.add(node_id)
         res_pmid = set(node_map[node_id].get("supporting_pmids", []))
         res_pat = set(node_map[node_id].get("supporting_patent_ids", []))
+        res_prod = set(node_map[node_id].get("supporting_product_ids", []))
         for child in children_map.get(node_id, []):
-            cp, ct = collect_descendants(child, visited)
+            cp, ct, cpr = collect_descendants(child, visited)
             res_pmid.update(cp)
             res_pat.update(ct)
-        return res_pmid, res_pat
+            res_prod.update(cpr)
+        return res_pmid, res_pat, res_prod
         
     for n in flat_nodes:
-        p1, p2 = collect_descendants(n["node_id"], set())
+        p1, p2, p3 = collect_descendants(n["node_id"], set())
         n["supporting_pmids"] = sorted(list(p1))
         n["supporting_patent_ids"] = sorted(list(p2))
+        n["supporting_product_ids"] = sorted(list(p3))
         
     roots = [n for n in flat_nodes if not n["parent_node_id"]]
     def _build(node_id):
@@ -234,12 +243,30 @@ def process_excel_generation(run_id: str, payload, run_record):
     else:
         cleaned_input_ids = None
 
+    # Load products data
+    products_data = source_data.get("_products")
+    if not products_data:
+        try:
+            # pyrefly: ignore [missing-import]
+            from database import SessionLocal
+            # pyrefly: ignore [missing-import]
+            import models
+            s_db = SessionLocal()
+            chat_sess = s_db.query(models.ChatSession).filter(models.ChatSession.run_id == run_id).first()
+            if chat_sess and chat_sess.mental_model:
+                mm_prods = chat_sess.mental_model.get("products")
+                if mm_prods:
+                    products_data = {p.get("product_id", f"prod_{i}"): p for i, p in enumerate(mm_prods)}
+            s_db.close()
+        except Exception as e:
+            print(f"Could not load products from chat session: {e}")
+
     if is_pubmed:
         from taxonomy_builder.utils.pubmed_excel_matrix_generator import generate_pubmed_matrix_excel
         generate_pubmed_matrix_excel(source_data, flat_nodes, enriched_tree, matrix_path, cleaned_input_ids)
     else:
         from taxonomy_builder.utils.excel_matrix_generator import generate_dynamic_matrix_excel
-        generate_dynamic_matrix_excel(source_data, flat_nodes, enriched_tree, matrix_path, cleaned_input_ids)
+        generate_dynamic_matrix_excel(source_data, flat_nodes, enriched_tree, matrix_path, cleaned_input_ids, products_data=products_data)
         
     if not os.path.exists(matrix_path):
         raise HTTPException(status_code=404, detail="Excel file generation failed.")
@@ -252,6 +279,7 @@ def build_excel_preview_data(matrix_path: str) -> dict:
     Parses the generated taxonomy matrix Excel file into structured JSON
     including merged cells, colors, fonts, and dimensions so the frontend can
     render an exact pixel-matched preview before downloading.
+    Supports multi-sheet workbooks.
     """
     import openpyxl
     
@@ -259,90 +287,106 @@ def build_excel_preview_data(matrix_path: str) -> dict:
         raise HTTPException(status_code=404, detail="Excel matrix file not found.")
 
     wb = openpyxl.load_workbook(matrix_path, data_only=True)
-    ws = wb.active
+    sheet_names = wb.sheetnames
 
-    # Compute merged cells
-    merged_ranges = []
-    covered_cells = set()
-    for m in ws.merged_cells.ranges:
-        merged_ranges.append({
-            'min_row': m.min_row,
-            'max_row': m.max_row,
-            'min_col': m.min_col,
-            'max_col': m.max_col,
-            'rowspan': m.max_row - m.min_row + 1,
-            'colspan': m.max_col - m.min_col + 1
-        })
-        for r in range(m.min_row, m.max_row + 1):
-            for c in range(m.min_col, m.max_col + 1):
-                if not (r == m.min_row and c == m.min_col):
-                    covered_cells.add((r, c))
+    def parse_sheet(ws):
+        merged_ranges = []
+        covered_cells = set()
+        for m in ws.merged_cells.ranges:
+            merged_ranges.append({
+                'min_row': m.min_row,
+                'max_row': m.max_row,
+                'min_col': m.min_col,
+                'max_col': m.max_col,
+                'rowspan': m.max_row - m.min_row + 1,
+                'colspan': m.max_col - m.min_col + 1
+            })
+            for r in range(m.min_row, m.max_row + 1):
+                for c in range(m.min_col, m.max_col + 1):
+                    if not (r == m.min_row and c == m.min_col):
+                        covered_cells.add((r, c))
 
-    merge_by_top_left = {(m['min_row'], m['min_col']): m for m in merged_ranges}
+        merge_by_top_left = {(m['min_row'], m['min_col']): m for m in merged_ranges}
 
-    rows = []
-    max_r = ws.max_row
-    max_c = ws.max_column
+        rows = []
+        max_r = ws.max_row or 1
+        max_c = ws.max_column or 1
 
-    # Get column widths
-    col_widths = {}
-    for c in range(1, max_c + 1):
-        col_letter = openpyxl.utils.get_column_letter(c)
-        dim = ws.column_dimensions.get(col_letter)
-        col_widths[c] = dim.width if dim and dim.width else 18
-
-    for r in range(1, max_r + 1):
-        row_cells = []
+        col_widths = {}
         for c in range(1, max_c + 1):
-            if (r, c) in covered_cells:
-                continue
+            col_letter = openpyxl.utils.get_column_letter(c)
+            dim = ws.column_dimensions.get(col_letter)
+            col_widths[c] = dim.width if dim and dim.width else 18
 
-            cell = ws.cell(r, c)
-            val = cell.value
+        for r in range(1, max_r + 1):
+            row_cells = []
+            for c in range(1, max_c + 1):
+                if (r, c) in covered_cells:
+                    continue
 
-            # Extract color
-            fill_color = None
-            if cell.fill and cell.fill.start_color and cell.fill.start_color.rgb:
-                rgb_str = str(cell.fill.start_color.rgb)
-                if len(rgb_str) == 8 and rgb_str != '00000000':
-                    fill_color = '#' + rgb_str[2:]
-                elif len(rgb_str) == 6:
-                    fill_color = '#' + rgb_str
+                cell = ws.cell(r, c)
+                val = cell.value
 
-            font_color = None
-            if cell.font and cell.font.color and cell.font.color.rgb:
-                c_str = str(cell.font.color.rgb)
-                if len(c_str) == 8 and c_str != '00000000':
-                    font_color = '#' + c_str[2:]
-                elif len(c_str) == 6:
-                    font_color = '#' + c_str
+                fill_color = None
+                if cell.fill and cell.fill.start_color and cell.fill.start_color.rgb:
+                    rgb_str = str(cell.fill.start_color.rgb)
+                    if len(rgb_str) == 8 and rgb_str != '00000000':
+                        fill_color = '#' + rgb_str[2:]
+                    elif len(rgb_str) == 6:
+                        fill_color = '#' + rgb_str
 
-            bold = cell.font.bold if cell.font else False
-            align_h = cell.alignment.horizontal if cell.alignment else 'left'
-            align_v = cell.alignment.vertical if cell.alignment else 'middle'
+                font_color = None
+                if cell.font and cell.font.color and cell.font.color.rgb:
+                    c_str = str(cell.font.color.rgb)
+                    if len(c_str) == 8 and c_str != '00000000':
+                        font_color = '#' + c_str[2:]
+                    elif len(c_str) == 6:
+                        font_color = '#' + c_str
 
-            cell_data = {
-                'row': r,
-                'col': c,
-                'value': val if val is not None else '',
-                'bg': fill_color,
-                'color': font_color,
-                'bold': bold,
-                'align_h': align_h,
-                'align_v': align_v,
-            }
+                bold = cell.font.bold if cell.font else False
+                align_h = cell.alignment.horizontal if cell.alignment else 'left'
+                align_v = cell.alignment.vertical if cell.alignment else 'middle'
 
-            if (r, c) in merge_by_top_left:
-                cell_data['rowspan'] = merge_by_top_left[(r, c)]['rowspan']
-                cell_data['colspan'] = merge_by_top_left[(r, c)]['colspan']
+                cell_data = {
+                    'row': r,
+                    'col': c,
+                    'value': val if val is not None else '',
+                    'bg': fill_color,
+                    'color': font_color,
+                    'bold': bold,
+                    'align_h': align_h,
+                    'align_v': align_v,
+                }
 
-            row_cells.append(cell_data)
-        rows.append(row_cells)
+                if (r, c) in merge_by_top_left:
+                    cell_data['rowspan'] = merge_by_top_left[(r, c)]['rowspan']
+                    cell_data['colspan'] = merge_by_top_left[(r, c)]['colspan']
+
+                row_cells.append(cell_data)
+            rows.append(row_cells)
+
+        return {
+            "title": ws.title,
+            "max_row": max_r,
+            "max_col": max_c,
+            "col_widths": col_widths,
+            "rows": rows
+        }
+
+    sheets_data = {}
+    for name in sheet_names:
+        sheets_data[name] = parse_sheet(wb[name])
+
+    active_name = sheet_names[0] if sheet_names else ""
+    first_data = sheets_data.get(active_name, {"title": "", "max_row": 0, "max_col": 0, "col_widths": {}, "rows": []})
 
     return {
-        "title": ws.title,
-        "max_row": max_r,
-        "max_col": max_c,
-        "col_widths": col_widths,
-        "rows": rows
+        "sheet_names": sheet_names,
+        "active_sheet": active_name,
+        "title": first_data["title"],
+        "max_row": first_data["max_row"],
+        "max_col": first_data["max_col"],
+        "col_widths": first_data["col_widths"],
+        "rows": first_data["rows"],
+        "sheets": sheets_data
     }

@@ -13,12 +13,17 @@ import React, { useState } from 'react';
 
 export default function ExcelPreviewModal({ previewData, onClose, onDownload, isDownloading }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedSheet, setSelectedSheet] = useState(
+    previewData?.active_sheet || (previewData?.sheet_names && previewData.sheet_names[0]) || ''
+  );
 
-  if (!previewData || !previewData.rows) {
+  if (!previewData) {
     return null;
   }
 
-  const { title, rows, col_widths, filename } = previewData;
+  const activeSheetData = (previewData.sheets && selectedSheet && previewData.sheets[selectedSheet]) || previewData;
+  const { title = '', rows = [], col_widths = {} } = activeSheetData;
+  const filename = previewData.filename;
 
   // Filter rows if user types in search
   const filteredRows = searchTerm.trim() === '' ? rows : rows.filter((r, idx) => {
@@ -93,7 +98,7 @@ export default function ExcelPreviewModal({ previewData, onClose, onDownload, is
                 </span>
               </div>
               <p style={{ margin: '3px 0 0', fontSize: 12, color: '#94a3b8' }}>
-                Exact spreadsheet structure with merged hierarchy headers & claim quotes
+                Multi-sheet workbook with exact merged hierarchy headers & commercial products catalog
               </p>
             </div>
           </div>
@@ -102,7 +107,7 @@ export default function ExcelPreviewModal({ previewData, onClose, onDownload, is
             {/* Search Input */}
             <input
               type="text"
-              placeholder="Search patent #, title, or keyword..."
+              placeholder={`Search ${selectedSheet || 'sheet'}...`}
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               style={{
@@ -116,6 +121,32 @@ export default function ExcelPreviewModal({ previewData, onClose, onDownload, is
                 width: 260
               }}
             />
+
+            {/* Download Excel Button in Top Bar */}
+            <button
+              onClick={onDownload}
+              disabled={isDownloading}
+              title="Download full multi-sheet Excel matrix (.xlsx)"
+              style={{
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '7px 16px',
+                cursor: isDownloading ? 'not-allowed' : 'pointer',
+                fontWeight: 700,
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                transition: 'all 0.15s ease',
+                opacity: isDownloading ? 0.7 : 1
+              }}
+            >
+              <span>{isDownloading ? '⏳' : '📥'}</span>
+              <span>{isDownloading ? 'Downloading...' : 'Download Excel'}</span>
+            </button>
 
             {/* Close Button */}
             <button
@@ -138,6 +169,56 @@ export default function ExcelPreviewModal({ previewData, onClose, onDownload, is
             </button>
           </div>
         </div>
+
+        {/* Multi-Sheet Selector Tabs */}
+        {previewData.sheet_names && previewData.sheet_names.length > 1 && (
+          <div
+            style={{
+              padding: '8px 24px',
+              background: '#090e1a',
+              borderBottom: '1px solid #1e293b',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              overflowX: 'auto'
+            }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: 4 }}>
+              Sheets:
+            </span>
+            {previewData.sheet_names.map(name => {
+              const isSelected = (selectedSheet || previewData.active_sheet) === name;
+              const icon = name.includes('Patent') ? '📜' : name.includes('Specification') ? '📋' : '📦';
+              return (
+                <button
+                  key={name}
+                  onClick={() => {
+                    setSelectedSheet(name);
+                    setSearchTerm('');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 14px',
+                    borderRadius: 6,
+                    border: isSelected ? '1px solid #38bdf8' : '1px solid #1e293b',
+                    background: isSelected ? '#1e293b' : '#0f172a',
+                    color: isSelected ? '#38bdf8' : '#94a3b8',
+                    fontSize: 12,
+                    fontWeight: isSelected ? 600 : 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    boxShadow: isSelected ? '0 2px 8px rgba(56, 189, 248, 0.15)' : 'none'
+                  }}
+                >
+                  <span>{icon}</span>
+                  <span>{name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Spreadsheet Content Area */}
         <div
@@ -248,10 +329,10 @@ export default function ExcelPreviewModal({ previewData, onClose, onDownload, is
           </table>
         </div>
 
-        {/* Bottom Bar with Floating Download Action in Right Bottom */}
+        {/* Bottom Bar showing metadata */}
         <div
           style={{
-            padding: '14px 24px',
+            padding: '12px 24px',
             background: '#0f172a',
             borderTop: '1px solid #1e293b',
             display: 'flex',
@@ -263,37 +344,6 @@ export default function ExcelPreviewModal({ previewData, onClose, onDownload, is
             <span>📊 Total Rows: <strong style={{ color: '#f1f5f9' }}>{rows.length}</strong></span>
             <span>📑 Sheet: <strong style={{ color: '#38bdf8' }}>{title || 'Patent Taxonomy Matrix'}</strong></span>
           </div>
-
-          {/* Right Bottom Download Button */}
-          <button
-            onClick={onDownload}
-            disabled={isDownloading}
-            style={{
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: 8,
-              padding: '10px 22px',
-              cursor: isDownloading ? 'not-allowed' : 'pointer',
-              fontWeight: 700,
-              fontSize: 14,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
-              transition: 'transform 0.15s, box-shadow 0.15s',
-              opacity: isDownloading ? 0.7 : 1
-            }}
-            onMouseEnter={e => {
-              if (!isDownloading) e.currentTarget.style.transform = 'translateY(-1px)';
-            }}
-            onMouseLeave={e => {
-              if (!isDownloading) e.currentTarget.style.transform = 'translateY(0)';
-            }}
-          >
-            <span>{isDownloading ? '⏳' : '📥'}</span>
-            <span>{isDownloading ? 'Generating Excel...' : 'Download Excel'}</span>
-          </button>
         </div>
       </div>
     </div>

@@ -18,10 +18,12 @@ class GraphNodeData(BaseModel):
     label: str
     contexts_by_patent: Optional[dict[str, list[str]]] = None
     contexts_by_pmid: Optional[dict[str, list[str]]] = None
+    contexts_by_product: Optional[dict[str, list[str]]] = None
     patent_contexts: Optional[list[str]] = None
     isExpanded: Optional[bool] = None
     supporting_patent_ids: Optional[list[str]] = None
     supporting_pmids: Optional[list[str]] = None
+    supporting_product_ids: Optional[list[str]] = None
 
 class GraphNode(BaseModel):
     id: str

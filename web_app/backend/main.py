@@ -1,5 +1,5 @@
 import os
-# pyrefly: ignore [missing-import]
+# Reload trigger: dynamic product excel export enabled
 from fastapi import FastAPI
 # pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
