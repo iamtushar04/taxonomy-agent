@@ -619,6 +619,19 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
     }
   };
 
+  const handleTriggeredRun = (targetRunId) => {
+    if (!targetRunId) return;
+    setStatus('running');
+    setNodes([]);
+    setEdges([]);
+    setTaxonomyData([]);
+    setIsGraphMinimized(false);
+    setIsGraphMaximized(false);
+    // Refresh sidebar so the existing run reflects 'running' without adding any new item
+    if (onRunComplete) onRunComplete();
+    ensurePolling(targetRunId);
+  };
+
   const fetchGraph = async (id) => {
     try {
       const res = await axiosClient.get(`/api/taxonomy/${id}`);
@@ -944,6 +957,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
                 currentRunName={currentRunName}
                 status={status}
                 onStartPipeline={handleStartPipeline}
+                onTriggeredRun={handleTriggeredRun}
                 isGraphAvailable={!!currentRunId && (nodes.length > 0 || status === 'running')}
                 isGraphMinimized={isGraphMinimized}
                 onToggleGraphMinimize={() => {

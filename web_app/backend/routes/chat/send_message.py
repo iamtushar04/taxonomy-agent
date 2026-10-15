@@ -144,7 +144,9 @@ def send_chat_message(
             patent_ids=run.input_ids or [],
             mental_model_context=response_metadata.get("mental_model_context", ""),
             user_id=user_id,
-            db=db
+            db=db,
+            source_session=session,
+            run_id=run_id
         )
 
     return {

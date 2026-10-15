@@ -32,9 +32,12 @@ def trigger_taxonomy_run(
     patent_ids: list,
     mental_model_context: str,
     user_id: int,
-    db: Session
+    db: Session,
+    source_session: Optional[models.ChatSession] = None,
+    run_id: Optional[str] = None
 ) -> Optional[str]:
-    """Triggers taxonomy generation pipeline in background thread with mental model guidance."""
+    """Triggers taxonomy generation pipeline in background thread with mental model guidance.
+    If run_id is provided, updates the existing run in-place without creating a new session or run."""
     try:
         import threading
         # pyrefly: ignore [missing-import]
@@ -46,20 +49,45 @@ def trigger_taxonomy_run(
             logger.warning("[chat_routes] No patent IDs found to trigger run")
             return None
 
-        new_run_id = str(uuid.uuid4())[:8]
-        db_service.create_new_run(db, new_run_id, patent_ids, user_id)
+        if run_id:
+            # IN-PLACE UPDATE: reuse existing run and existing chat session!
+            active_run_id = run_id
+            existing_run = db.query(models.Run).filter(models.Run.id == active_run_id).first()
+            if existing_run:
+                existing_run.status = "running"
+                existing_run.error_message = None
+                db.commit()
+            logger.info(f"[chat_routes] Updating run {active_run_id} in-place from chatbot")
+        else:
+            # Fallback for new runs when no run_id is active
+            active_run_id = str(uuid.uuid4())[:8]
+            db_service.create_new_run(db, active_run_id, patent_ids, user_id)
+            if source_session:
+                new_chat_session = models.ChatSession(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    run_id=active_run_id,
+                    product_doc_text=source_session.product_doc_text,
+                    mental_model=source_session.mental_model,
+                    mental_model_confirmed=True,
+                    mapping_rules=list(source_session.mapping_rules or []),
+                    messages=list(source_session.messages or [])
+                )
+                db.add(new_chat_session)
+                db.commit()
+            logger.info(f"[chat_routes] Created new run {active_run_id} from chatbot")
 
         t = threading.Thread(
             target=run_taxonomy_pipeline,
-            args=(new_run_id, patent_ids, None),
+            args=(active_run_id, patent_ids, None),
             kwargs={"mental_model_context": mental_model_context},
             daemon=True
         )
         t.start()
 
-        logger.info(f"[chat_routes] Successfully triggered run {new_run_id} from chatbot")
-        return new_run_id
+        return active_run_id
 
     except Exception as e:
         logger.error(f"[chat_routes] Failed to trigger run: {e}")
         return None
+

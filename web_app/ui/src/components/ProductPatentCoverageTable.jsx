@@ -9,6 +9,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
+import axiosClient from '../api/axiosClient';
 
 const TH_STYLE = {
   padding: '12px 16px',
@@ -36,6 +37,7 @@ export default function ProductPatentCoverageTable({ products = [], taxonomy = [
   const [selectedPatentModal, setSelectedPatentModal] = useState(null);
   const [selectedProductModal, setSelectedProductModal] = useState(null);
   const [selectedOverlapModal, setSelectedOverlapModal] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Quick lookup map for patent details
   const patentLookup = useMemo(() => {
@@ -126,6 +128,57 @@ export default function ProductPatentCoverageTable({ products = [], taxonomy = [
       );
     });
   }, [productMapping, search, filterMode]);
+
+  const handleExport = async (format = 'excel') => {
+    setIsExporting(true);
+    try {
+      const mappingRows = productMapping.map(m => {
+        const brand = resolveBrand(m.product, m.patentIds);
+        const pats = Array.from(m.patentIds).join(', ') || 'None';
+        const nodesStr = m.nodes.join(', ') || 'General';
+        const feats = (m.product.features || []).slice(0, 5).join('; ') || 'N/A';
+        return [
+          m.product.product_name,
+          brand,
+          m.patentIds.size > 0 ? `Protected (${m.patentIds.size} Patents)` : 'Unprotected Gap',
+          pats,
+          feats,
+          nodesStr
+        ];
+      });
+
+      const tables = [{
+        sheet_title: "Commercialization Matrix",
+        columns: [
+          "Commercial Product",
+          "Manufacturer / Brand",
+          "IP Protection Status",
+          "Protecting Patents",
+          "Key Technical Features & Specs",
+          "Mapped Taxonomy Branches"
+        ],
+        rows: mappingRows
+      }];
+
+      const res = await axiosClient.post('/api/export/generate', {
+        title: "Product_Patent_Commercialization_Matrix",
+        format: format,
+        summary: `Cross-reference of ${totalProducts} commercial product lines against patent protection coverage and taxonomy domains.`,
+        tables: tables
+      });
+
+      if (res.data && res.data.download_url) {
+        const baseUrl = window.APP_CONFIG?.API_BASE_URL || 'http://localhost:8652';
+        const fullUrl = `${baseUrl}${res.data.download_url}`;
+        window.open(fullUrl, '_blank');
+      }
+    } catch (err) {
+      console.error("Export error:", err);
+      alert("Failed to generate export file. Please try again.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   if (products.length === 0) {
     return (
@@ -249,6 +302,52 @@ export default function ProductPatentCoverageTable({ products = [], taxonomy = [
               {btn.label}
             </button>
           ))}
+        </div>
+
+        {/* Direct Export Buttons */}
+        <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+          <button
+            onClick={() => handleExport('excel')}
+            disabled={isExporting}
+            style={{
+              background: '#064e3b',
+              color: '#a7f3d0',
+              border: '1px solid #059669',
+              padding: '6px 12px',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: isExporting ? 'wait' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              opacity: isExporting ? 0.7 : 1,
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <span>📊</span> {isExporting ? 'Exporting...' : 'Export Sheet (.xlsx)'}
+          </button>
+          <button
+            onClick={() => handleExport('pdf')}
+            disabled={isExporting}
+            style={{
+              background: '#881337',
+              color: '#fecdd3',
+              border: '1px solid #e11d48',
+              padding: '6px 12px',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: isExporting ? 'wait' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              opacity: isExporting ? 0.7 : 1,
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <span>📄</span> {isExporting ? 'Exporting...' : 'Export PDF'}
+          </button>
         </div>
       </div>
 

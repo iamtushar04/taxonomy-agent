@@ -9,6 +9,7 @@ export default function InlineChatView({
   currentRunName,
   status,
   onStartPipeline,
+  onTriggeredRun,
   isGraphAvailable,
   isGraphMinimized,
   onToggleGraphMinimize,
@@ -125,8 +126,7 @@ export default function InlineChatView({
       return;
     }
 
-    // Existing run selected: clear previous messages and chips first
-    setMessages([]);
+    // Existing run selected: clear transient input state
     setMentalModel(null);
     setPatentIds([]);
     setUploadedProducts([]);
@@ -444,6 +444,11 @@ export default function InlineChatView({
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
         setMessages(prev => [...prev, assistantMsg]);
+
+        // If this message triggered a background taxonomy run, switch active run and begin tracking
+        if (res.data.triggered_run_id && onTriggeredRun) {
+          onTriggeredRun(res.data.triggered_run_id);
+        }
       } else {
         // Pre-run conversation (guiding product focus, instructions, supplying patents)
         const res = await axiosClient.post('/api/chat/pre-run/message', {

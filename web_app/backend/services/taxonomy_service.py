@@ -114,6 +114,18 @@ def run_taxonomy_pipeline(run_id: str, patent_ids: List[str], session_upload_id:
         try:
             import datetime
             chat_sess = db.query(models.ChatSession).filter(models.ChatSession.run_id == run_id).first()
+            if not chat_sess:
+                import uuid
+                run_obj = db.query(models.Run).filter(models.Run.id == run_id).first()
+                chat_sess = models.ChatSession(
+                    id=str(uuid.uuid4()),
+                    user_id=run_obj.user_id if run_obj and run_obj.user_id else 1,
+                    run_id=run_id,
+                    messages=[]
+                )
+                db.add(chat_sess)
+                db.commit()
+
             if chat_sess:
                 key_branches = []
                 for n in (final_taxonomy or []):

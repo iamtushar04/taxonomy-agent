@@ -96,21 +96,70 @@ function renderInlineFormatting(text, isUser = false) {
       // Link [title](url)
       const linkMatch = matchText.match(/\[([^\]]+)\]\(([^)]+)\)/);
       if (linkMatch) {
-        tokens.push(
-          <a
-            key={`link-${keyIdx++}`}
-            href={linkMatch[2]}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              color: isUser ? '#ffffff' : '#38bdf8',
-              textDecoration: 'underline',
-              fontWeight: 500
-            }}
-          >
-            {linkMatch[1]}
-          </a>
-        );
+        const title = linkMatch[1];
+        let url = linkMatch[2];
+        const isDownload = url.includes('/api/export/download/') || url.includes('/api/download-excel/') || url.endsWith('.xlsx') || url.endsWith('.pdf') || title.toLowerCase().includes('download');
+
+        const baseUrl = window.APP_CONFIG?.API_BASE_URL || 'http://localhost:8652';
+        const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+
+        if (isDownload) {
+          const isPdf = url.includes('.pdf') || title.toLowerCase().includes('pdf');
+          tokens.push(
+            <a
+              key={`link-${keyIdx++}`}
+              href={fullUrl}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                background: isPdf ? '#881337' : '#064e3b',
+                color: '#ffffff',
+                border: `1px solid ${isPdf ? '#f43f5e' : '#10b981'}`,
+                padding: '6px 14px',
+                borderRadius: 8,
+                textDecoration: 'none',
+                fontWeight: 600,
+                fontSize: 13,
+                margin: '4px 0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+              }}
+            >
+              <span>{isPdf ? '📄' : '📊'}</span>
+              <span>{title.replace(/^[📄📊📥\s]+/, '')}</span>
+              <span style={{ fontSize: 11, opacity: 0.8, marginLeft: 2 }}>↓</span>
+            </a>
+          );
+        } else {
+          tokens.push(
+            <a
+              key={`link-${keyIdx++}`}
+              href={fullUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: isUser ? '#ffffff' : '#38bdf8',
+                textDecoration: 'underline',
+                fontWeight: 500
+              }}
+            >
+              {title}
+            </a>
+          );
+        }
       } else {
         tokens.push(matchText);
       }

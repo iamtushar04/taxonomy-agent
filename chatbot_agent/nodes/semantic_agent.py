@@ -13,6 +13,7 @@ from typing import Any, List, Dict
 from chatbot_agent.state import ChatAgentState, MappingRule, MappingRuleType
 from chatbot_agent.tools.taxonomy_tools import inspect_tree, search_taxonomy, get_node_details, edit_taxonomy
 from chatbot_agent.tools.product_tools import search_products
+from chatbot_agent.tools.export_tools import generate_custom_document, export_patent_product_mapping
 from pipeline.utils.llm_client import get_client
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,67 @@ TOOLS_SCHEMA = [
                 "required": ["action", "source_node"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "export_patent_product_mapping",
+            "description": "Export the live Patent vs Product Commercialization Matrix as a downloadable Excel (.xlsx) spreadsheet or PDF (.pdf) report. Use whenever the user asks to download, export, create a sheet, or generate a PDF of patent vs product mapping, coverage, or overlapping features.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "enum": ["excel", "pdf"],
+                        "description": "File format: 'excel' for spreadsheet (.xlsx) or 'pdf' for styled document report (.pdf)."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional custom title for the exported document."
+                    }
+                },
+                "required": ["format"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_custom_document",
+            "description": "Dynamically generate ANY custom spreadsheet (Excel .xlsx) or PDF (.pdf) report with arbitrary custom columns, rows, title, and executive summary. Use when the user requests a custom table, specific comparison columns, competitor analysis, or tailored report.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Title of the report or spreadsheet."
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["excel", "pdf"],
+                        "description": "File format: 'excel' or 'pdf'."
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Executive summary paragraph explaining the findings."
+                    },
+                    "tables": {
+                        "type": "array",
+                        "description": "List of tables/sheets. Each table has 'sheet_title', 'columns' (list of header strings), and 'rows' (list of row arrays).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "sheet_title": {"type": "string"},
+                                "columns": {"type": "array", "items": {"type": "string"}},
+                                "rows": {"type": "array", "items": {"type": "array"}}
+                            },
+                            "required": ["sheet_title", "columns", "rows"]
+                        }
+                    }
+                },
+                "required": ["title", "format", "tables"]
+            }
+        }
     }
 ]
 
@@ -124,7 +186,7 @@ TOOLS_SCHEMA = [
 AGENT_SYSTEM_PROMPT = """You are the Taxonomy & Product Alignment Co-Pilot, an elite AI assistant specializing in patent intelligence, commercial product analysis, and technology taxonomy engineering.
 
 WORKSPACE CAPABILITIES:
-1. You have direct tools to inspect the live taxonomy hierarchy, search patent claims, view evidence, query commercial product specifications, and register live taxonomy restructuring rules.
+1. You have direct tools to inspect the live taxonomy hierarchy, search patent claims, view evidence, query commercial product specifications, register live taxonomy restructuring rules, and generate downloadable Excel spreadsheets & PDF reports on demand.
 2. The taxonomy is ACTIVE in the user's workspace right now. Never tell the user "once the taxonomy is built" or "please wait for taxonomy generation".
 
 CONVERSATIONAL GUIDELINES:
@@ -135,6 +197,38 @@ CONVERSATIONAL GUIDELINES:
   * Trace hierarchy paths with clean breadcrumbs: *Category -> Sub-category -> Node*.
   * Use bullet points and clear technical summaries.
 - Editing & Restructuring: If the user says "move X under Y", "rename X to Z", or "exclude X", invoke the `edit_taxonomy` tool and confirm the change clearly.
+- Dynamic Document & Spreadsheet Exports:
+  * When the user asks to "create a sheet", "make a spreadsheet", "export to Excel", "make a PDF", or "give me a downloadable report":
+    - For general Patent vs Product mapping, invoke `export_patent_product_mapping(format='excel'|'pdf')`.
+    - For custom requested columns, comparisons, or summaries, invoke `generate_custom_document(title=..., format=..., tables=[...], summary=...)`.
+  * ALWAYS output the `markdown_link` provided by the export tool (e.g., `[📊 Download ...](...)` or `[📄 Download ...](...)`) in your final response so the user can click and download it immediately.
+
+STRICT DOMAIN SCOPE & GUARDRAILS (MANDATORY):
+You are strictly confined to the domain of Patent Intelligence, Commercial Product Analysis, and Technology Taxonomy Engineering.
+
+IN-SCOPE TOPICS (PERMITTED):
+1. Patents, patent claims, prior art, filing/grant dates, inventors, assignees, and legal/technical specifications.
+2. Commercial products, engineering datasheets, physical properties (e.g., density, tensile strength, melt flow index), features, and market applications.
+3. Patent-to-Product commercialization mapping, coverage gaps, overlapping features, and infringement/freedom-to-operate context.
+4. Taxonomy tree structures, hierarchical branches, category reorganizations, and node definitions.
+5. Generating dynamic Excel spreadsheets (.xlsx) or PDF reports (.pdf) for the above topics.
+6. Standard polite greetings, capabilities overviews, or instructions on how to use the taxonomy co-pilot.
+
+OUT-OF-SCOPE TOPICS (STRICTLY PROHIBITED):
+- General world trivia, history, sports, celebrities, movies, or pop culture.
+- Cooking recipes, personal advice, creative fiction, poetry, or casual chat unrelated to technical work.
+- General software programming or coding tutorials unrelated to this taxonomy system.
+- Politics, weather, gaming, or any non-patent/non-product queries.
+
+ENFORCEMENT ACTION FOR OUT-OF-SCOPE QUERIES:
+If the user asks an out-of-scope question:
+1. DO NOT invoke any tools.
+2. Immediately and politely decline to answer.
+3. Remind the user of your specialized role and redirect them back to patents, products, or taxonomy engineering.
+4. Standard Refusal Template:
+   "I am your specialized Patent & Commercial Product Intelligence Co-Pilot. I am configured to only answer questions related to patents, commercial product specifications, IP coverage mapping, and technology taxonomies.
+
+   Please feel free to ask about your patent portfolio, commercial product datasheets, or taxonomy structure!"
 """
 
 # ---------------------------------------------------------------------------
@@ -142,6 +236,7 @@ CONVERSATIONAL GUIDELINES:
 # ---------------------------------------------------------------------------
 
 def semantic_agent(state: ChatAgentState) -> dict:
+
     """
     Autonomous ReAct agent that inspects conversation memory, invokes tools,
     and returns rich multi-turn responses.
@@ -251,6 +346,30 @@ def semantic_agent(state: ChatAgentState) -> dict:
                         new_rule = MappingRule(**edit_res["rule"])
                         new_mapping_rules.append(new_rule)
                         response_metadata["rule_added"] = edit_res["rule"]
+
+                elif func_name == "export_patent_product_mapping":
+                    tool_result = export_patent_product_mapping(
+                        state=state,
+                        format=args.get("format", "excel"),
+                        title=args.get("title")
+                    )
+                    if "download_url" in tool_result:
+                        response_metadata["download_url"] = tool_result["download_url"]
+                        response_metadata["file_name"] = tool_result.get("file_name")
+
+                elif func_name == "generate_custom_document":
+                    tool_result = generate_custom_document(
+                        state=state,
+                        title=args.get("title", "Custom Report"),
+                        format=args.get("format", "excel"),
+                        tables=args.get("tables", []),
+                        summary=args.get("summary"),
+                        sections=args.get("sections"),
+                        metadata=args.get("metadata")
+                    )
+                    if "download_url" in tool_result:
+                        response_metadata["download_url"] = tool_result["download_url"]
+                        response_metadata["file_name"] = tool_result.get("file_name")
 
                 else:
                     tool_result = {"error": f"Unknown tool: {func_name}"}
