@@ -27,10 +27,14 @@ functools.partial, keeping node signatures uniform (state → state).
 
 from __future__ import annotations
 
+import logging
 from functools import partial
 
 from langgraph.graph import END, StateGraph
 
+logger = logging.getLogger(__name__)
+
+from pipeline.state import TaxonomyNode, PatentExtractionState
 from pipeline.nodes.describe_nodes import describe_nodes
 from pipeline.nodes.extract_values import extract_values
 from pipeline.nodes.apply_rules import apply_rules
@@ -114,3 +118,106 @@ def build_graph(col_map: ExcelColumnMap) -> any:
     graph.add_edge("write_excel",     END)
 
     return graph.compile()
+
+
+# ---------------------------------------------------------------------------
+# Subgraph for direct extraction (no Excel writes)
+# ---------------------------------------------------------------------------
+
+def _route_after_fetch_subgraph(state: PatentExtractionState) -> str:
+    if state.get("errors"):
+        return END
+    return "parse_content"
+
+
+def _route_after_parse_subgraph(state: PatentExtractionState) -> str:
+    if not state.get("patent_chunks"):
+        return END
+    return "describe_nodes"
+
+
+def build_extraction_subgraph() -> any:
+    """
+    Build and compile the extraction pipeline without the Excel writer.
+    Returns:
+        Compiled LangGraph app.
+    """
+    graph = StateGraph(PatentExtractionState)
+
+    graph.add_node("fetch_patent",    fetch_patent)
+    graph.add_node("parse_content",   parse_content)
+    graph.add_node("describe_nodes",  describe_nodes)
+    graph.add_node("match_relevance", match_relevance)
+    graph.add_node("extract_values",  extract_values)
+    graph.add_node("validate",        validate)
+
+    graph.set_entry_point("fetch_patent")
+
+    graph.add_conditional_edges(
+        "fetch_patent",
+        _route_after_fetch_subgraph,
+        {"parse_content": "parse_content", END: END},
+    )
+    graph.add_conditional_edges(
+        "parse_content",
+        _route_after_parse_subgraph,
+        {"describe_nodes": "describe_nodes", END: END},
+    )
+    graph.add_edge("describe_nodes",  "match_relevance")
+    graph.add_edge("match_relevance", "extract_values")
+    graph.add_edge("extract_values",  "validate")
+    graph.add_edge("validate",        END)
+
+    return graph.compile()
+
+
+_cached_subgraph = None
+
+
+def run_patent_extraction(
+    patent_number: str,
+    taxonomy_nodes: list[TaxonomyNode],
+    extraction_reasoning: dict[str, str] | None = None,
+    raw_api_response: dict | None = None,
+    run_id: str | None = None,
+) -> list:
+    """
+    Runs the full pipeline for a single patent:
+      fetch -> parse -> describe -> match -> extract -> validate.
+    Logs execution step-by-step into logs/traces/{patent_number}_trace.md and
+    optionally in logs/taxonomy_builder/{run_id}/{patent_number}_trace.md.
+    Returns list of validated ExtractionResult dicts.
+    """
+    global _cached_subgraph
+    if _cached_subgraph is None:
+        _cached_subgraph = build_extraction_subgraph()
+
+    from pipeline.utils import tracer
+    try:
+        tracer.init_trace(patent_number)
+    except Exception as e:
+        logger.warning("Could not init trace for %s: %s", patent_number, e)
+
+    initial_state: PatentExtractionState = {
+        "patent_number": patent_number,
+        "taxonomy_nodes": taxonomy_nodes,
+        "extraction_reasoning": extraction_reasoning or {},
+        "raw_api_response": raw_api_response or {},
+        "errors": [],
+    }
+
+    final_state = initial_state
+    try:
+        for event in _cached_subgraph.stream(initial_state):
+            for node_name, node_state in event.items():
+                try:
+                    tracer.log_node_event(patent_number, node_name, node_state, run_id=run_id)
+                except Exception:
+                    pass
+                final_state = node_state
+    except Exception as exc:
+        logger.error("Pipeline extraction failed for %s: %s", patent_number, exc, exc_info=True)
+
+    extractions = final_state.get("validated_extractions") or final_state.get("extractions") or []
+    return extractions
+

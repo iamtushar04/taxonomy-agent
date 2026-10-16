@@ -43,8 +43,8 @@ logger = logging.getLogger(__name__)
 # Maximum characters of patent text to send per extraction call
 _MAX_CONTEXT_CHARS = 12_000
 
-# Sections in priority order for context assembly
-_SECTION_PRIORITY = ["claims", "description", "table", "abstract", "figure"]
+# Sections in priority order for context assembly (Claims Priority 1, Detailed Description Priority 2)
+_SECTION_PRIORITY = ["claims", "description", "table"]
 
 
 # ---------------------------------------------------------------------------
@@ -56,8 +56,9 @@ def _build_context(chunks: list[PatentChunk], max_chars: int = _MAX_CONTEXT_CHAR
     Assemble patent text from chunks in section-priority order.
     Caps total length at max_chars to stay within context window.
     """
-    # Group chunks by section priority
-    ordered: list[PatentChunk] = sorted(chunks, key=lambda c: c["priority"])
+    # Filter to only allowed priority sections (claims, description, table)
+    allowed_chunks = [c for c in chunks if c.get("section") in _SECTION_PRIORITY]
+    ordered: list[PatentChunk] = sorted(allowed_chunks, key=lambda c: c["priority"])
 
     parts: list[str] = []
     total = 0
@@ -86,11 +87,12 @@ Rules you MUST follow:
 1. Extract information ONLY from the provided patent text. NEVER invent or infer
    information not explicitly stated.
 2. The "evidence" field MUST be an exact verbatim quote from the text (max 300 chars).
-3. If the information is not present, return status "NOT_FOUND" with values=[].
-4. If the information is present but ambiguous or unclear, return status "UNCERTAIN".
-5. RANGE SYNTHESIS: If a property is reported across multiple inventive examples (e.g. in a table), you MUST extract ALL inventive values and summarize them into a single range (e.g., "10 - 20 MPa") rather than reporting a single arbitrary value.
-6. CONDITIONAL/DIMENSIONAL SPLITS: If the property has different dimensions, directions, or testing conditions (e.g., MD vs. TD, Standby vs Active), report a range for each condition in the same value string (e.g., "MD: 10 - 20 MPa | TD: 15 - 25 MPa").
-7. Include the unit in the value string.
+3. Do NOT extract or quote from broad abstracts or generic background sections. Evidence MUST be a specific technical disclosure from [Claim N] or [Description]/[Example N].
+4. If the information is not present, return status "NOT_FOUND" with values=[].
+5. If the information is present but ambiguous or unclear, return status "UNCERTAIN".
+6. RANGE SYNTHESIS: If a property is reported across multiple inventive examples (e.g. in a table), you MUST extract ALL inventive values and summarize them into a single range (e.g., "10 - 20 MPa") rather than reporting a single arbitrary value.
+7. CONDITIONAL/DIMENSIONAL SPLITS: If the property has different dimensions, directions, or testing conditions (e.g., MD vs. TD, Standby vs Active), report a range for each condition in the same value string (e.g., "MD: 10 - 20 MPa | TD: 15 - 25 MPa").
+8. Include the unit in the value string.
 
 SOURCE PRIORITY WATERFALL -- follow this order strictly:
   Step 1. Check [Claim N] sections FIRST.

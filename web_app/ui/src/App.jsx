@@ -119,7 +119,7 @@ const MindmapNode = ({ id, data }) => {
       if (!isExpanded && immediateChildren.includes(e.target)) return { ...e, hidden: false };
       return e;
     });
-    
+
     // SYNCHRONOUS LAYOUT
     applyLayoutAndState(newNodes, newEdges);
   };
@@ -129,7 +129,7 @@ const MindmapNode = ({ id, data }) => {
     const name = prompt("Enter new node name:");
     if (!name) return;
     const newNodeId = `node_${Date.now()}`;
-    
+
     const newNode = {
       id: newNodeId,
       type: 'mindmap',
@@ -137,7 +137,7 @@ const MindmapNode = ({ id, data }) => {
       position: { x: 0, y: 0 },
       hidden: false
     };
-    
+
     const newEdge = {
       id: `e-${id}-${newNodeId}`,
       source: id,
@@ -172,7 +172,7 @@ const MindmapNode = ({ id, data }) => {
   const hasChildren = getEdges().some(e => e.source === id);
 
   return (
-    <div 
+    <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{
@@ -184,13 +184,13 @@ const MindmapNode = ({ id, data }) => {
       onClick={handleToggle}
     >
       <Handle type="target" position={Position.Left} style={{ background: '#a0c0e8', width: '8px', height: '8px', border: 'none' }} />
-      
+
       <div style={{ padding: '0 5px', userSelect: 'none', display: 'flex', alignItems: 'center' }}>
         {data.label}
         {data.contexts_by_patent && Object.keys(data.contexts_by_patent).length > 0 && (
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center', marginLeft: 6 }}
-               onMouseEnter={() => setShowTooltip(true)}
-               onMouseLeave={() => setShowTooltip(false)}>
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}>
             <span style={{ cursor: 'help', fontSize: '13px', opacity: 0.7 }}>ℹ️</span>
             {showTooltip && (
               <div style={{
@@ -215,7 +215,7 @@ const MindmapNode = ({ id, data }) => {
           </div>
         )}
         {data.supporting_product_ids && data.supporting_product_ids.length > 0 && (
-          <div 
+          <div
             style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 6 }}
             onMouseEnter={() => setShowProductTooltip(true)}
             onMouseLeave={() => setShowProductTooltip(false)}
@@ -242,7 +242,7 @@ const MindmapNode = ({ id, data }) => {
 
             {/* Rich Commercial Product Tooltip Popover */}
             {showProductTooltip && (
-              <div 
+              <div
                 style={{
                   position: 'absolute',
                   bottom: '125%',
@@ -292,8 +292,8 @@ const MindmapNode = ({ id, data }) => {
                   });
 
                   // If specific features matched, show those; otherwise show top 2 features with attribution
-                  const displayFeatures = relevantFeatures.length > 0 
-                    ? relevantFeatures 
+                  const displayFeatures = relevantFeatures.length > 0
+                    ? relevantFeatures
                     : (pInfo.features || []).slice(0, 2);
 
                   return (
@@ -347,7 +347,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
   const [activeTab, setActiveTab] = useState('graph');   // 'graph' | 'analytics'
   const [isPubmed, setIsPubmed] = useState(false);
   const [taxonomyData, setTaxonomyData] = useState([]);  // raw taxonomy array for analytics
-  
+
   // Graph collapse/expand state
   const [isGraphMinimized, setIsGraphMinimized] = useState(false);
   const [isGraphMaximized, setIsGraphMaximized] = useState(false);
@@ -559,12 +559,12 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
 
   const handleStartPipeline = async (patentList, uploadId, contextGuidance, messagesList = [], mentalModelObj = null, productLinksList = []) => {
     // 1. Generate unique 8-character run ID on the client immediately at 0ms!
-    const immediateRunId = (typeof crypto !== 'undefined' && crypto.randomUUID) 
-      ? crypto.randomUUID().replace(/-/g, '').slice(0, 8) 
+    const immediateRunId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 8)
       : Math.random().toString(36).substring(2, 10);
 
     const isPubmed = patentList && patentList.some(pid => /^\d+$/.test(pid.trim()));
-    const initialName = patentList && patentList.length > 0 
+    const initialName = patentList && patentList.length > 0
       ? `${isPubmed ? 'PubMed' : 'Patent'} Graph (${patentList.length} items)`
       : 'Patent Graph';
 
@@ -649,17 +649,17 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
       const initialEdges = [];
 
       taxonomyArray.forEach((item) => {
-        const isHidden = item.level > 1; 
+        const isHidden = item.level > 1;
         const isExpanded = item.level <= 0;
 
         initialNodes.push({
           id: item.node_id,
           type: 'mindmap',
-          data: { 
-            label: item.name, 
+          data: {
+            label: item.name,
             description: item.description,
-            isExpanded, 
-            saveHistory, 
+            isExpanded,
+            saveHistory,
             patent_contexts: item.patent_contexts,
             contexts_by_patent: item.contexts_by_patent,
             contexts_by_pmid: item.contexts_by_pmid,
@@ -689,7 +689,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
       setNodes(layouted.nodes);
       setEdges(layouted.edges);
       setIsGraphMinimized(false);
-      
+
       history.current = [{ nodes: layouted.nodes, edges: layouted.edges }];
       historyPointer.current = 0;
     } catch (error) {
@@ -718,11 +718,11 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
       const allNodes = getNodes();
       let edgesToRemove = [...edgesToDelete];
       let nodesToRemove = [];
-      
+
       edgesToDelete.forEach(deletedEdge => {
         const targetId = deletedEdge.target;
         const incomingEdges = allEdges.filter(e => e.target === targetId && !edgesToDelete.find(d => d.id === e.id));
-        
+
         if (incomingEdges.length === 0) {
           const getDescendants = (nodeId, currentEdges) => {
             let desc = [nodeId];
@@ -738,12 +738,12 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
       });
 
       if (nodesToRemove.length > 0) {
-         const newNodes = allNodes.filter(n => !nodesToRemove.includes(n.id));
-         const newEdges = allEdges.filter(e => !nodesToRemove.includes(e.source) && !nodesToRemove.includes(e.target) && !edgesToRemove.find(d => d.id === e.id));
-         const layouted = getLayoutedElements(newNodes, newEdges);
-         setNodes(layouted.nodes);
-         setEdges(layouted.edges);
-         saveHistory(layouted.nodes, layouted.edges);
+        const newNodes = allNodes.filter(n => !nodesToRemove.includes(n.id));
+        const newEdges = allEdges.filter(e => !nodesToRemove.includes(e.source) && !nodesToRemove.includes(e.target) && !edgesToRemove.find(d => d.id === e.id));
+        const layouted = getLayoutedElements(newNodes, newEdges);
+        setNodes(layouted.nodes);
+        setEdges(layouted.edges);
+        saveHistory(layouted.nodes, layouted.edges);
       }
     },
     [getNodes, getEdges, setNodes, setEdges, saveHistory]
@@ -775,19 +775,19 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
       }, {
         responseType: 'blob'
       });
-      
+
       let filename = `Taxonomy_Matrix_${currentRunId}.xlsx`;
       const disposition = response.headers['content-disposition'];
       if (disposition && disposition.indexOf('filename=') !== -1) {
-          const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
-          const matches = filenameRegex.exec(disposition);
-          if (matches != null && matches[1]) { 
-              filename = matches[1].replace(/['"]/g, '');
-          }
+        const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+        const matches = filenameRegex.exec(disposition);
+        if (matches != null && matches[1]) {
+          filename = matches[1].replace(/['"]/g, '');
+        }
       } else if (currentRunName) {
-         filename = `${currentRunName.replace(/ /g, '_')}.xlsx`;
+        filename = `${currentRunName.replace(/ /g, '_')}.xlsx`;
       }
-      
+
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -817,7 +817,7 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
         gap: 12
       }}>
         {/* Sidebar toggle */}
-        <button 
+        <button
           onClick={() => setShowSidebar(!showSidebar)}
           title="Toggle Sidebar"
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '18px', color: '#94a3b8', flexShrink: 0 }}
@@ -889,8 +889,8 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
             <span>👤</span>
             <span>{userName || `User ${userId}`}</span>
           </span>
-          <button 
-            onClick={logout} 
+          <button
+            onClick={logout}
             title="Logout"
             style={{
               padding: '6px 10px',
@@ -927,15 +927,15 @@ function TaxonomyEditor({ currentRunId, setCurrentRunId, onRunComplete, onOptimi
 
         {/* ── UNIFIED WORKSPACE (CONVERSATION + GRAPH) ─────────────────── */}
         {activeTab === 'graph' && (
-          <div 
+          <div
             ref={splitContainerRef}
-            style={{ 
-              flex: 1, 
-              display: 'flex', 
-              minHeight: 0, 
-              minWidth: 0, 
-              position: 'relative', 
-              width: '100%', 
+            style={{
+              flex: 1,
+              display: 'flex',
+              minHeight: 0,
+              minWidth: 0,
+              position: 'relative',
+              width: '100%',
               height: '100%',
               userSelect: isDraggingSplitter ? 'none' : 'auto',
               cursor: isDraggingSplitter ? 'col-resize' : 'auto'
@@ -1086,18 +1086,18 @@ function AppLayout() {
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden' }}>
       {showSidebar && (
-        <DashboardSidebar 
-          currentRunId={currentRunId} 
-          onSelectRun={setCurrentRunId} 
-          refreshTrigger={refreshTrigger} 
+        <DashboardSidebar
+          currentRunId={currentRunId}
+          onSelectRun={setCurrentRunId}
+          refreshTrigger={refreshTrigger}
           optimisticRun={optimisticRun}
         />
       )}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-        <TaxonomyEditor 
-          currentRunId={currentRunId} 
-          setCurrentRunId={setCurrentRunId} 
-          onRunComplete={() => setRefreshTrigger(prev => prev + 1)} 
+        <TaxonomyEditor
+          currentRunId={currentRunId}
+          setCurrentRunId={setCurrentRunId}
+          onRunComplete={() => setRefreshTrigger(prev => prev + 1)}
           onOptimisticRun={setOptimisticRun}
           showSidebar={showSidebar}
           setShowSidebar={setShowSidebar}

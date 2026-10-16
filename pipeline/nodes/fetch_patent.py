@@ -32,6 +32,9 @@ def fetch_patent(state: PatentExtractionState) -> PatentExtractionState:
              state["errors"]  (on failure)
     """
     patent_number = state["patent_number"]
+    if state.get("raw_api_response"):
+        logger.info("[fetch_patent] Reusing existing raw_api_response for %s", patent_number)
+        return state
     logger.info("[fetch_patent] Fetching: %s", patent_number)
 
     api_key = os.environ.get("WISSEN_API_KEY", "")

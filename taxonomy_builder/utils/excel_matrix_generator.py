@@ -12,7 +12,7 @@ def write_tree_headers_to_sheet(ws, tree_dict, max_depth, start_col=6, palette=N
         palette = ["92D050", "00B0F0", "FFC000", "B1A0C7", "FFFF00", "B7DEE8", "D9E1F2", "FCE4D6"]
     dynamic_header_font = Font(bold=True, color="000000")
     center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    leaf_col_map = {}
+    leaf_cols = []
 
     def _recurse(subtree, row, col_offset, color_idx=0):
         if not subtree:
@@ -37,7 +37,7 @@ def write_tree_headers_to_sheet(ws, tree_dict, max_depth, start_col=6, palette=N
                 )
             else:
                 if not children:
-                    leaf_col_map[node_name] = col_offset + total_span
+                    leaf_cols.append((node_name, col_offset + total_span))
                     if row < max_depth:
                         ws.merge_cells(
                             start_row=row,
@@ -51,11 +51,11 @@ def write_tree_headers_to_sheet(ws, tree_dict, max_depth, start_col=6, palette=N
     _recurse(tree_dict, row=1, col_offset=start_col)
 
     # Set width for dynamic leaf columns
-    for leaf_name, c_idx in leaf_col_map.items():
+    for leaf_name, c_idx in leaf_cols:
         col_letter = openpyxl.utils.get_column_letter(c_idx)
         ws.column_dimensions[col_letter].width = 35
 
-    return leaf_col_map
+    return leaf_cols
 
 
 def generate_dynamic_matrix_excel(
@@ -148,12 +148,13 @@ def generate_dynamic_matrix_excel(
                 summary_text = summary_text[:200] + "..."
             ws_pat.cell(row=row_idx, column=5, value=summary_text).alignment = cell_align
 
-            for leaf_name, col_idx in leaf_col_map_pat.items():
+            for leaf_name, col_idx in leaf_col_map_pat:
                 node = next((n for n in final_taxonomy if n.get("name") == leaf_name), None)
                 if node and patent_id in node.get("supporting_patent_ids", []):
                     patent_specific_contexts = node.get("contexts_by_patent", {}).get(patent_id, [])
                     if patent_specific_contexts:
-                        contexts = "\n\n".join(patent_specific_contexts)
+                        unique_ctxs = list(dict.fromkeys(c.strip() for c in patent_specific_contexts if c and c.strip()))
+                        contexts = "\n\n".join(unique_ctxs)
                         ws_pat.cell(row=row_idx, column=col_idx, value=contexts).alignment = cell_align
                     else:
                         ws_pat.cell(row=row_idx, column=col_idx, value="✓").alignment = center_align
@@ -206,7 +207,7 @@ def generate_dynamic_matrix_excel(
             p_features = p_info.get("features", [])
             p_snippet = p_info.get("full_text_snippet", "")
 
-            for leaf_name, col_idx in leaf_col_map_prod.items():
+            for leaf_name, col_idx in leaf_col_map_prod:
                 node = next((n for n in final_taxonomy if n.get("name") == leaf_name), None)
                 is_mapped = False
                 evidence = ""
@@ -220,7 +221,11 @@ def generate_dynamic_matrix_excel(
                     p_contexts = node.get("contexts_by_product", {}).get(prod_id) or node.get("contexts_by_product", {}).get(prod_name)
                     if p_contexts:
                         is_mapped = True
-                        evidence = "\n\n".join(p_contexts) if isinstance(p_contexts, list) else str(p_contexts)
+                        if isinstance(p_contexts, list):
+                            unique_p_ctxs = list(dict.fromkeys(c.strip() for c in p_contexts if c and c.strip()))
+                            evidence = "\n\n".join(unique_p_ctxs)
+                        else:
+                            evidence = str(p_contexts).strip()
 
                     # Substring match against product features as fallback evidence
                     if not is_mapped and p_features:

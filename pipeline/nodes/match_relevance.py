@@ -40,12 +40,12 @@ _LLM_BATCH_SIZE = 30
 # ---------------------------------------------------------------------------
 
 def _build_keyword_set(node: TaxonomyNode) -> set[str]:
-    """Extract searchable keywords from a node's name and path."""
+    """Extract searchable keywords from a node's leaf name."""
     tokens: set[str] = set()
-    for text in [node["name"], node["path"]]:
-        # Split on spaces, slashes, parentheses, dashes
-        words = re.split(r"[\s/\-\(\)>]+", text.lower())
-        tokens.update(w for w in words if len(w) > 3)
+    # Only use leaf node name to prevent broad ancestor names from matching every patent
+    words = re.split(r"[\s/\-\(\)>]+", node["name"].lower())
+    stop_words = {"technology", "method", "system", "device", "process", "type", "other", "general", "design", "insights"}
+    tokens.update(w for w in words if len(w) > 3 and w not in stop_words)
     return tokens
 
 
@@ -79,10 +79,11 @@ def _llm_score_batch(
             "content": (
                 "You are a patent analyst. Given a patent's context and a list of "
                 "taxonomy nodes, determine which nodes are relevant to this patent. "
-                "A node is relevant if the patent likely contains information that "
-                "could fill that category. Return a JSON object: "
-                "{\"<node_id>\": true or false, ...}. "
-                "Be inclusive — if in doubt, mark as true."
+                "A node is relevant ONLY if the patent explicitly teaches, claims, or discloses "
+                "technical features or data for that specific category. "
+                "If the patent does NOT explicitly disclose or teach this specific topic, mark it as false. "
+                "Return a JSON object: "
+                "{\"<node_id>\": true or false, ...}."
             ),
         },
         {

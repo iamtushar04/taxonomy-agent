@@ -267,7 +267,8 @@ def fetch_patents(state: TaxonomyGenerationState) -> dict:
                 "full_text": full_text,
                 "assignee": assignee_str,
                 "filing_date": str(filing_date) if filing_date else None,
-                "summary": summary_text
+                "summary": summary_text,
+                "raw_api_response": data if isinstance(data, dict) else None
             }
             print(f"Successfully loaded {p_id} (title: '{title[:45]}...', claims: {len(claims)} chars, desc: {len(desc)} chars)")
                 
