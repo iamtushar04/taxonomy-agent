@@ -40,13 +40,32 @@ def fetch_patent(state: PatentExtractionState) -> PatentExtractionState:
     api_key = os.environ.get("WISSEN_API_KEY", "")
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
-    url = f"{_BASE_URL}/patent/{patent_number}"
+    is_cn = patent_number.upper().startswith("CN")
+    extract_base = os.environ.get("WISSEN_API_EXTRACT_BASE", f"{_BASE_URL}/extract")
+    primary_url = f"{extract_base}/{patent_number}?cache=false" if is_cn else f"{_BASE_URL}/patent/{patent_number}"
+    fallback_url = f"{_BASE_URL}/patent/{patent_number}" if is_cn else f"{extract_base}/{patent_number}?cache=false"
+
+    data = None
+    last_exc = None
 
     try:
         with httpx.Client(timeout=_TIMEOUT) as client:
-            response = client.get(url, headers=headers)
-            response.raise_for_status()
-            data = response.json()
+            try:
+                response = client.get(primary_url, headers=headers)
+                if response.status_code == 200:
+                    data = response.json()
+                else:
+                    logger.warning("[fetch_patent] Primary endpoint %s returned HTTP %s for %s, trying fallback...", primary_url, response.status_code, patent_number)
+                    res_fb = client.get(fallback_url, headers=headers)
+                    if res_fb.status_code == 200:
+                        data = res_fb.json()
+                    else:
+                        response.raise_for_status()
+            except (httpx.HTTPStatusError, httpx.RequestError) as e:
+                logger.warning("[fetch_patent] Request error for %s on primary, trying fallback: %s", patent_number, e)
+                res_fb = client.get(fallback_url, headers=headers)
+                res_fb.raise_for_status()
+                data = res_fb.json()
 
     except httpx.HTTPStatusError as exc:
         msg = f"HTTP {exc.response.status_code} fetching {patent_number}: {exc}"

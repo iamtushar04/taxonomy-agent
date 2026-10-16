@@ -115,11 +115,11 @@ def _detect_example_number(text: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def parse_structured_description(
-    html: str,
+    html: str | list,
     patent_number: str,
 ) -> list[PatentChunk]:
     """
-    Parse the raw HTML from `structured_description` into PatentChunks.
+    Parse raw HTML or text from `structured_description` / `description_html` into PatentChunks.
 
     Processing order:
       1. Extract and convert all <table> elements first.
@@ -127,21 +127,25 @@ def parse_structured_description(
       3. Extract figure captions.
 
     Args:
-        html:           Raw HTML string from the API.
+        html:           Raw HTML string, list of strings/dicts, or plain text from API.
         patent_number:  Used to build unique chunk IDs.
 
     Returns:
         List of PatentChunk dicts, ready to merge with claims/abstract chunks.
     """
-    # structured_description can be a list of HTML strings or a single string
     if isinstance(html, list):
-        html = "\n".join(str(item) for item in html if item)
+        parts = []
+        for item in html:
+            if isinstance(item, dict):
+                parts.append(item.get("text") or item.get("paragraph") or str(item))
+            elif item:
+                parts.append(str(item))
+        html = "\n".join(parts)
 
-    if not html or not html.strip():
+    if not html or not str(html).strip():
         return []
 
-
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(str(html), "lxml")
     chunks: list[PatentChunk] = []
     chunk_counter = 0
 
@@ -152,7 +156,6 @@ def parse_structured_description(
             table.decompose()
             continue
 
-        # Try to find a nearby caption / label
         caption_tag = table.find("caption")
         caption = _clean_text(caption_tag.get_text()) if caption_tag else ""
         source_label = f"Table {table_idx}" + (f" ({caption})" if caption else "")
@@ -187,22 +190,39 @@ def parse_structured_description(
     # ── Step 3: Paragraphs / example sections ──────────────────────────────
     current_example: Optional[str] = None
 
-    # Walk top-level block elements
     block_tags = soup.find_all(
-        ["p", "div", "section", "h1", "h2", "h3", "h4", "h5", "h6", "li"]
+        ["p", "div", "section", "h1", "h2", "h3", "h4", "h5", "h6", "li", "invention-title", "technical-field", "background-art", "disclosure"]
     )
 
     if not block_tags:
-        # Fallback: just dump all remaining text
-        text = _clean_text(soup.get_text())
-        if text:
-            chunks.append(PatentChunk(
-                chunk_id=_chunk_id(patent_number, "description", chunk_counter),
-                section="description",
-                source_label="Description",
-                priority=PRIORITY_DESCRIPTION,
-                text=text,
-            ))
+        # Fallback: plain text, split into readable paragraph chunks
+        raw_text = _clean_text(soup.get_text("\n"))
+        if raw_text:
+            paras = [p.strip() for p in raw_text.split("\n") if p.strip()]
+            cur_p = []
+            cur_len = 0
+            for p in paras:
+                cur_p.append(p)
+                cur_len += len(p)
+                if cur_len >= 800:
+                    chunks.append(PatentChunk(
+                        chunk_id=_chunk_id(patent_number, "description", chunk_counter),
+                        section="description",
+                        source_label="Description",
+                        priority=PRIORITY_DESCRIPTION,
+                        text=" ".join(cur_p),
+                    ))
+                    chunk_counter += 1
+                    cur_p = []
+                    cur_len = 0
+            if cur_p:
+                chunks.append(PatentChunk(
+                    chunk_id=_chunk_id(patent_number, "description", chunk_counter),
+                    section="description",
+                    source_label="Description",
+                    priority=PRIORITY_DESCRIPTION,
+                    text=" ".join(cur_p),
+                ))
         return chunks
 
     for tag in block_tags:
@@ -210,7 +230,10 @@ def parse_structured_description(
         if not text or len(text) < 10:
             continue
 
-        # Detect example markers
+        # Skip parent container if it has inner block elements to prevent duplicates
+        if tag.find(["p", "div", "section", "h1", "h2", "h3", "h4", "h5", "h6", "li"]):
+            continue
+
         example_label = _detect_example_number(text)
         if example_label:
             current_example = example_label
@@ -239,25 +262,36 @@ def parse_structured_description(
 
 
 def parse_claims_text(
-    claims_text: str,
-    structured_claims: list[dict],
-    patent_number: str,
+    claims_text: str = "",
+    structured_claims: list[dict] | None = None,
+    patent_number: str = "",
+    claims_html: str | None = None,
+    independent_claims: list | str | None = None,
 ) -> list[PatentChunk]:
     """
     Convert the claims field(s) from the API into PatentChunks.
 
-    Prefers structured_claims (element-level) when available;
-    falls back to splitting the flat claims string by claim number.
-
-    Independent claims get priority=1, dependent claims get priority=2.
+    Prefers structured_claims when available;
+    supports claims_html from live /extract/ responses (used for CN patents);
+    falls back to splitting flat string by claim number pattern.
     """
     chunks: list[PatentChunk] = []
 
-    if structured_claims:
+    # 1. Element-level structured_claims list
+    if structured_claims and isinstance(structured_claims, list):
         for claim in structured_claims:
-            num = claim.get("claim_number", "?").lstrip("0") or "?"
-            is_independent = claim.get("is_independent", False)
-            text = _clean_text(claim.get("claim_text", ""))
+            if isinstance(claim, dict):
+                num = str(claim.get("claim_number", "?")).lstrip("0") or "?"
+                is_independent = claim.get("is_independent", False)
+                text = _clean_text(claim.get("claim_text", "") or claim.get("text", ""))
+            elif isinstance(claim, str) and claim.strip():
+                m = re.match(r"^(\d+)\.", claim.strip())
+                num = m.group(1) if m else "?"
+                is_independent = (num == "1")
+                text = _clean_text(claim)
+            else:
+                continue
+
             if not text:
                 continue
             chunks.append(PatentChunk(
@@ -267,25 +301,89 @@ def parse_claims_text(
                 priority=PRIORITY_CLAIM if is_independent else 2,
                 text=text,
             ))
-        return chunks
+        if chunks:
+            return chunks
 
-    # Fallback: split flat string on "N. " pattern
-    if not claims_text:
-        return chunks
+    # 2. claims_html (common in /extract/ responses for CN patents)
+    if claims_html and isinstance(claims_html, str) and claims_html.strip():
+        soup = BeautifulSoup(claims_html, "lxml")
+        
+        # Check for <div num="0001"> or <div class="claim" num="...">
+        claim_nodes = soup.find_all(lambda t: t.has_attr("num"))
+        if claim_nodes:
+            seen_nums = set()
+            for idx, cn in enumerate(claim_nodes, start=1):
+                raw_num = cn.get("num")
+                clean_t = _clean_text(cn.get_text())
+                if not clean_t or len(clean_t) < 5:
+                    continue
+                m = re.match(r"^(\d+)\.", clean_t)
+                num_str = m.group(1) if m else (str(raw_num).lstrip("0") if raw_num else str(idx))
+                if num_str in seen_nums:
+                    continue
+                seen_nums.add(num_str)
+                is_indep = (num_str == "1") or ("claim" not in clean_t.lower()[:30])
+                chunks.append(PatentChunk(
+                    chunk_id=_chunk_id(patent_number, "claim", int(num_str) if num_str.isdigit() else idx),
+                    section="claims",
+                    source_label=f"Claim {num_str}",
+                    priority=PRIORITY_CLAIM if is_indep else 2,
+                    text=clean_t,
+                ))
+            if chunks:
+                return chunks
 
-    parts = re.split(r"(?=\b\d+\.\s)", claims_text)
-    for part in parts:
-        part = _clean_text(part)
-        if not part:
-            continue
-        m = re.match(r"^(\d+)\.", part)
-        num = m.group(1) if m else "?"
-        chunks.append(PatentChunk(
-            chunk_id=_chunk_id(patent_number, "claim", int(num) if num.isdigit() else 0),
-            section="claims",
-            source_label=f"Claim {num}",
-            priority=PRIORITY_CLAIM,
-            text=part,
-        ))
+        # Fallback for claims_html without num attributes: extract clean text
+        html_plain = _clean_text(soup.get_text("\n"))
+        if html_plain:
+            claims_text = html_plain
+
+    # 3. Flat claims string
+    if claims_text and isinstance(claims_text, str) and claims_text.strip():
+        if "<" in claims_text and ">" in claims_text:
+            claims_text = BeautifulSoup(claims_text, "lxml").get_text("\n")
+
+        parts = re.split(r"(?=\b\d+\.\s)", claims_text)
+        for part in parts:
+            part = _clean_text(part)
+            if not part:
+                continue
+            m = re.match(r"^(\d+)\.", part)
+            num = m.group(1) if m else "?"
+            is_indep = (num == "1")
+            chunks.append(PatentChunk(
+                chunk_id=_chunk_id(patent_number, "claim", int(num) if num.isdigit() else 0),
+                section="claims",
+                source_label=f"Claim {num}",
+                priority=PRIORITY_CLAIM if is_indep else 2,
+                text=part,
+            ))
+        if chunks:
+            return chunks
+
+    # 4. independent_claims fallback
+    if independent_claims:
+        if isinstance(independent_claims, list):
+            for idx, c in enumerate(independent_claims, start=1):
+                txt = c.get("claim_text") or c.get("text") if isinstance(c, dict) else str(c)
+                txt = _clean_text(txt)
+                if txt:
+                    chunks.append(PatentChunk(
+                        chunk_id=_chunk_id(patent_number, "claim", idx),
+                        section="claims",
+                        source_label=f"Independent Claim {idx}",
+                        priority=PRIORITY_CLAIM,
+                        text=txt,
+                    ))
+        elif isinstance(independent_claims, str) and independent_claims.strip():
+            txt = _clean_text(independent_claims)
+            if txt:
+                chunks.append(PatentChunk(
+                    chunk_id=_chunk_id(patent_number, "claim", 1),
+                    section="claims",
+                    source_label="Independent Claim 1",
+                    priority=PRIORITY_CLAIM,
+                    text=txt,
+                ))
 
     return chunks

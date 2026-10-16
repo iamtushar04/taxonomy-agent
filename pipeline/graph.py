@@ -206,18 +206,32 @@ def run_patent_extraction(
         "errors": [],
     }
 
-    final_state = initial_state
+    final_state = dict(initial_state)
+    known_nodes = {"fetch_patent", "parse_content", "describe_nodes", "match_relevance", "extract_values", "validate"}
+
     try:
-        for event in _cached_subgraph.stream(initial_state):
-            for node_name, node_state in event.items():
-                try:
-                    tracer.log_node_event(patent_number, node_name, node_state, run_id=run_id)
-                except Exception:
-                    pass
-                final_state = node_state
+        for event in _cached_subgraph.stream(initial_state, stream_mode="updates"):
+            if not isinstance(event, dict):
+                continue
+
+            # Check if event is {node_name: node_output}
+            has_known_node = any(k in known_nodes for k in event.keys())
+            if has_known_node:
+                for node_name, node_state in event.items():
+                    if isinstance(node_state, dict):
+                        final_state.update(node_state)
+                    try:
+                        tracer.log_node_event(patent_number, node_name, final_state, run_id=run_id)
+                    except Exception as log_exc:
+                        logger.warning("Error logging trace for %s at %s: %s", patent_number, node_name, log_exc)
+            else:
+                # Event is a full state dictionary (values mode)
+                final_state.update(event)
     except Exception as exc:
         logger.error("Pipeline extraction failed for %s: %s", patent_number, exc, exc_info=True)
 
-    extractions = final_state.get("validated_extractions") or final_state.get("extractions") or []
+    extractions = []
+    if isinstance(final_state, dict):
+        extractions = final_state.get("validated_extractions") or final_state.get("extractions") or []
     return extractions
 

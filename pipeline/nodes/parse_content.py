@@ -103,14 +103,29 @@ def parse_content(state: PatentExtractionState) -> PatentExtractionState:
         ))
 
     # ── 2. Claims (highest priority) ────────────────────────────────────────
-    claims_text       = data.get("claims") or ""
     structured_claims = data.get("structured_claims") or []
-    claim_chunks = parse_claims_text(claims_text, structured_claims, patent_number)
+    claims_text       = data.get("claims") or ""
+    claims_html       = data.get("claims_html") or ""
+    independent_claims = data.get("independent_claims") or []
+
+    claim_chunks = parse_claims_text(
+        claims_text=claims_text,
+        structured_claims=structured_claims,
+        patent_number=patent_number,
+        claims_html=claims_html,
+        independent_claims=independent_claims,
+    )
     chunks.extend(claim_chunks)
     logger.debug("[parse_content] %d claim chunks", len(claim_chunks))
 
     # ── 3. Structured description (HTML → tables + paragraphs + figures) ────
-    structured_desc = data.get("structured_description") or ""
+    structured_desc = (
+        data.get("structured_description")
+        or data.get("description_html")
+        or data.get("description")
+        or data.get("unstructured_description")
+        or ""
+    )
     desc_chunks = parse_structured_description(structured_desc, patent_number)
     chunks.extend(desc_chunks)
     logger.debug("[parse_content] %d description/table/figure chunks", len(desc_chunks))

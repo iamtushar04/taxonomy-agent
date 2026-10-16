@@ -41,4 +41,4 @@ app.include_router(product_router)
 app.include_router(chat_router)
 app.include_router(delete_router)
 
-# Reload trigger: 2026-10-15 - Added 202 accepted delete routes
+# Reload trigger: 2026-10-16 - CN patent claims_html & description_html parsing support enabled

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
-
+import re
 from difflib import SequenceMatcher
 
 from pipeline.state import ExtractionResult, ExtractionValue, PatentExtractionState
@@ -35,38 +35,91 @@ _CONFIDENCE_FLOOR = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.5"))
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _normalize_text(text: str) -> str:
+    """Normalize text by stripping quotes, collapsing whitespace, and normalizing dashes/unicode."""
+    if not text:
+        return ""
+    t = text.replace("\ufffd", "-").replace("–", "-").replace("—", "-").replace("\xa0", " ")
+    t = t.replace('“', '"').replace('”', '"').replace("‘", "'").replace("’", "'")
+    # Normalize European decimal commas (e.g., 972,0 -> 972.0)
+    t = re.sub(r"(\d),(\d)", r"\1.\2", t)
+    t = re.sub(r"[\s\n\r\t]+", " ", t)
+    return t.lower().strip()
+
+
 def _all_chunk_text(state: PatentExtractionState) -> str:
     """Concatenate all patent chunk text for evidence search."""
     chunks = state.get("patent_chunks") or []
-    return " ".join(c["text"] for c in chunks).lower()
+    return _normalize_text(" ".join(c["text"] for c in chunks))
 
 
 def _evidence_found(evidence: str, full_text: str) -> tuple[bool, float]:
     """
     Check if the evidence quote appears in the full patent text.
     Returns (found: bool, similarity: float).
-    Uses substring search first (exact), then fuzzy matching.
+    Uses substring search first (exact), then anchor matching, table segment matching, and fuzzy sliding window.
     """
     if not evidence:
         return False, 0.0
 
-    evidence_lower = evidence.lower().strip()
+    ev_norm = _normalize_text(evidence)
+    if not ev_norm:
+        return False, 0.0
 
-    # Exact substring check (fast path)
-    if evidence_lower in full_text:
+    # 1. Exact substring check on normalized text
+    if ev_norm in full_text:
         return True, 1.0
 
-    # Fuzzy match — slide a window of evidence length across the text
-    window = len(evidence_lower)
+    # 2. Strip surrounding quotation marks or citations often wrapped by LLMs
+    ev_clean = ev_norm.strip('"\'`')
+    if ev_clean in full_text:
+        return True, 1.0
+
+    # 3. Table segment matching: LLMs often quote multiple table cells separated by '|'
+    if "|" in evidence:
+        # Check pipe-collapsed version
+        ev_no_pipes = re.sub(r"[\s\|]+", " ", ev_norm).strip()
+        ft_no_pipes = re.sub(r"[\s\|]+", " ", full_text).strip()
+        if ev_no_pipes and ev_no_pipes in ft_no_pipes:
+            return True, 1.0
+
+        # Check individual cell segments
+        segments = [s.strip() for s in evidence.split("|") if len(s.strip()) >= 2]
+        if segments:
+            matched_segs = sum(1 for seg in segments if _normalize_text(seg) in full_text)
+            seg_ratio = matched_segs / len(segments)
+            if seg_ratio >= 0.70:
+                return True, max(seg_ratio, 0.85)
+
+    window = len(ev_clean)
     if window < 20:
-        # Short evidence is hard to verify — give benefit of the doubt
         return True, 0.8
 
+    # 3. Direct anchor lookup (check if prefix or suffix matches anywhere in text)
+    anchor_len = min(35, window // 2)
+    prefix_anchor = ev_clean[:anchor_len]
+    pos = full_text.find(prefix_anchor)
+    if pos != -1:
+        local_snippet = full_text[pos : pos + window + 30]
+        ratio = SequenceMatcher(None, ev_clean, local_snippet).ratio()
+        if ratio >= _EVIDENCE_SIMILARITY_THRESHOLD:
+            return True, ratio
+
+    suffix_anchor = ev_clean[-anchor_len:]
+    pos_s = full_text.find(suffix_anchor)
+    if pos_s != -1:
+        start_idx = max(0, pos_s - window + anchor_len - 15)
+        local_snippet = full_text[start_idx : pos_s + anchor_len + 15]
+        ratio = SequenceMatcher(None, ev_clean, local_snippet).ratio()
+        if ratio >= _EVIDENCE_SIMILARITY_THRESHOLD:
+            return True, ratio
+
+    # 4. Sliding window fuzzy matching
     best = 0.0
-    step = max(window // 4, 1)
+    step = max(window // 6, 5)
     for i in range(0, max(1, len(full_text) - window + 1), step):
         snippet = full_text[i : i + window]
-        ratio = SequenceMatcher(None, evidence_lower, snippet).ratio()
+        ratio = SequenceMatcher(None, ev_clean, snippet).ratio()
         if ratio > best:
             best = ratio
         if best >= _EVIDENCE_SIMILARITY_THRESHOLD:
